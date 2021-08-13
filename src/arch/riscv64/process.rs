@@ -248,7 +248,8 @@ impl ArchProcess {
             1 => {
                 // supervisor software interrupt
                 let pm = unsafe { process_manager() };
-                Csr::Sip.write(Csr::Sip.read() & !(1 << 1));
+                Csr::Sip.write(Csr::Sip.read() & !(1 << 1)); // clear SSIP
+                pm.wakeup();
                 pm.schedule();
             }
             _ => {}

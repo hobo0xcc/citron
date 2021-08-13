@@ -107,7 +107,6 @@ pub unsafe extern "C" fn kernel_trap() {
 
     if scause_val & (1 << 63) != 0 {
         ArchProcess::interrupt(&mut proc.arch_proc, scause_val & !(1 << 63));
-        return;
     } else {
         println!("Exception occurred!");
         println!("sepc: {:#x}", sepc_val);
@@ -115,4 +114,7 @@ pub unsafe extern "C" fn kernel_trap() {
         println!("stval: {:#x}", stval_val);
         loop {}
     }
+
+    Csr::Sepc.write(sepc_val);
+    Csr::Sstatus.write(sstatus_val);
 }

@@ -14,6 +14,7 @@
 
 extern crate alloc;
 extern crate array_init;
+extern crate intrusive_collections;
 // extern crate riscv;
 
 pub mod allocator;

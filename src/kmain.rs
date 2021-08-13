@@ -4,33 +4,42 @@ use crate::*;
 #[no_mangle]
 pub extern "C" fn test_proc1() {
     let mut str_arr = ['A' as u8];
-    unsafe {
-        asm!("mv a2, {}", in(reg)(&mut str_arr as *mut u8));
-        asm!("li a0, 1", "li a1, 0", "li a3, 1", "ecall",);
+    loop {
+        unsafe {
+            asm!("mv a2, {}", in(reg)(&mut str_arr as *mut u8));
+            asm!("li a0, 1", "li a1, 0", "li a3, 1", "ecall",);
+            asm!("li a0, 35", "li a1, 10", "ecall");
+        }
     }
-    loop {}
+    // loop {}
 }
 
 #[repr(align(4096))]
 #[no_mangle]
 pub extern "C" fn test_proc2() {
     let mut str_arr = ['B' as u8];
-    unsafe {
-        asm!("mv a2, {}", in(reg)(&mut str_arr as *mut u8));
-        asm!("li a0, 1", "li a1, 0", "li a3, 1", "ecall",);
+    loop {
+        unsafe {
+            asm!("mv a2, {}", in(reg)(&mut str_arr as *mut u8));
+            asm!("li a0, 1", "li a1, 0", "li a3, 1", "ecall",);
+            asm!("li a0, 35", "li a1, 10", "ecall");
+        }
     }
-    loop {}
+    // loop {}
 }
 
 #[repr(align(4096))]
 #[no_mangle]
 pub extern "C" fn test_proc3() {
     let mut str_arr = ['C' as u8];
-    unsafe {
-        asm!("mv a2, {}", in(reg)(&mut str_arr as *mut u8));
-        asm!("li a0, 1", "li a1, 0", "li a3, 1", "ecall",);
+    loop {
+        unsafe {
+            asm!("mv a2, {}", in(reg)(&mut str_arr as *mut u8));
+            asm!("li a0, 1", "li a1, 0", "li a3, 1", "ecall",);
+            asm!("li a0, 35", "li a1, 10", "ecall");
+        }
     }
-    loop {}
+    // loop {}
 }
 
 #[no_mangle]

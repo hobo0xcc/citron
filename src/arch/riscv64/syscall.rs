@@ -51,6 +51,13 @@ pub unsafe fn sys_write(pm: &mut ProcessManager, _fd: usize, buf: *mut u8, count
     0
 }
 
+pub unsafe fn sys_sleep(pm: &mut ProcessManager, delay: usize) -> usize {
+    let pid = pm.ptable[pm.running].pid;
+    pm.sleep(pid, delay);
+
+    0
+}
+
 pub unsafe fn execute_syscall() -> usize {
     let info = syscall_info();
     let pm = process_manager();
@@ -62,6 +69,7 @@ pub unsafe fn execute_syscall() -> usize {
             info.get_arg_ptr::<u8>(2),
             info.get_arg_raw(3),
         ),
+        35 => sys_sleep(pm, info.get_arg_raw(1)),
         _ => unimplemented!(),
     };
 

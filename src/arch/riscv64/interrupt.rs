@@ -26,6 +26,16 @@ pub fn interrupt_on() {
     Csr::Sstatus.write(sstatus);
 }
 
+pub fn interrupt_disable() -> usize {
+    let mask = Csr::Sstatus.read() & (1 << 1);
+    interrupt_off();
+    return mask;
+}
+
+pub fn interrupt_restore(mask: usize) {
+    Csr::Sstatus.write(Csr::Sstatus.read() | mask);
+}
+
 pub fn is_interrupt_enable() -> bool {
     let sstatus = Csr::Sstatus.read();
     let enable = (sstatus & 1 << 1) >> 1;

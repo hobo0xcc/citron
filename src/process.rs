@@ -1,20 +1,27 @@
+use crate::arch::riscv64::interrupt::interrupt_disable;
+use crate::arch::riscv64::interrupt::interrupt_restore;
 use crate::arch::target::nullproc;
 use crate::arch::target::process::Context;
 use crate::arch::target::process::{context_switch, ArchProcess};
 use crate::*;
 use alloc::alloc::alloc;
+use alloc::boxed::Box;
 use alloc::collections::binary_heap::BinaryHeap;
+use alloc::vec::Vec;
 use array_init::array_init;
 use core::alloc::Layout;
 use core::cmp::Ordering;
+use intrusive_collections::intrusive_adapter;
+use intrusive_collections::{LinkedList, LinkedListLink};
 
 pub static mut PM: Option<ProcessManager> = None;
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum State {
     Running,
     Ready,
     Suspend,
+    Sleep,
     Free,
 }
 
@@ -46,6 +53,7 @@ impl Process {
     }
 }
 
+#[derive(Clone)]
 pub struct ProcessDesc {
     pub priority: usize,
     pub pid: usize,
@@ -77,12 +85,52 @@ impl PartialEq for ProcessDesc {
 
 impl Eq for ProcessDesc {}
 
+#[derive(Clone)]
+pub struct ProcessDelay {
+    pid: usize,
+    delay: usize,
+    link: LinkedListLink,
+}
+
+intrusive_adapter!(ProcessDelayAdapter = Box<ProcessDelay>: ProcessDelay { link: LinkedListLink });
+
+impl ProcessDelay {
+    pub fn new(pid: usize, delay: usize) -> Self {
+        ProcessDelay {
+            pid,
+            delay,
+            link: LinkedListLink::new(),
+        }
+    }
+}
+
+pub struct DeferScheduler {
+    pub count: usize,
+    pub attempt: bool,
+}
+
+impl DeferScheduler {
+    pub fn new() -> Self {
+        DeferScheduler {
+            count: 0,
+            attempt: false,
+        }
+    }
+}
+
+pub enum DeferCommand {
+    Start,
+    Stop,
+}
+
 const PTABLE_SIZE: usize = 16;
 
 #[allow(dead_code)]
 pub struct ProcessManager {
     pub ptable: [Process; PTABLE_SIZE],
     pub pqueue: BinaryHeap<ProcessDesc>, // Ready list
+    sleep_queue: LinkedList<ProcessDelayAdapter>,
+    defer: DeferScheduler,
     pub curr_pid: usize,
     pub running: usize,
 }
@@ -98,6 +146,8 @@ impl ProcessManager {
         ProcessManager {
             ptable,
             pqueue: BinaryHeap::new(),
+            sleep_queue: LinkedList::new(ProcessDelayAdapter::new()),
+            defer: DeferScheduler::new(),
             curr_pid: 0,
             running: 0,
         }
@@ -114,8 +164,45 @@ impl ProcessManager {
         self.running = pid;
     }
 
+    pub fn pop_ready_proc(&mut self) -> Option<ProcessDesc> {
+        let proc_desc = &mut self.pqueue.pop();
+
+        while let Some(p) = proc_desc {
+            if self.ptable[p.pid].state == State::Ready {
+                // println!("{}: {:?}", p.pid, self.ptable[p.pid].state);
+                break;
+            }
+
+            *proc_desc = self.pqueue.pop();
+        }
+
+        (*proc_desc).clone()
+    }
+
+    pub fn defer_schedule(&mut self, cmd: DeferCommand) {
+        match cmd {
+            DeferCommand::Start => {
+                if self.defer.count == 0 {
+                    self.defer.attempt = false;
+                }
+                self.defer.count += 1;
+            }
+            DeferCommand::Stop => {
+                self.defer.count -= 1;
+                if self.defer.count == 0 && self.defer.attempt {
+                    self.schedule();
+                }
+            }
+        }
+    }
+
     pub fn schedule(&mut self) {
-        let proc = self.pqueue.pop();
+        if self.defer.count > 0 {
+            self.defer.attempt = true;
+            return;
+        }
+
+        let proc = self.pop_ready_proc(); // self.pqueue.pop();
         let pdesc = if let Some(desc) = proc {
             desc
         } else {
@@ -130,11 +217,15 @@ impl ProcessManager {
         let old_context = (&self.ptable[old_pid].arch_proc.context) as *const Context;
         let new_context = (&self.ptable[new_pid].arch_proc.context) as *const Context;
         if old_priority <= new_priority {
-            self.ptable[self.running].state = State::Ready;
-            self.pqueue.push(ProcessDesc::new(old_priority, old_pid));
+            if self.ptable[self.running].state == State::Running {
+                self.ptable[self.running].state = State::Ready;
+                self.pqueue.push(ProcessDesc::new(old_priority, old_pid));
+            }
         } else {
-            self.pqueue.push(ProcessDesc::new(new_priority, new_pid));
-            return;
+            if self.ptable[self.running].state == State::Running {
+                self.pqueue.push(ProcessDesc::new(new_priority, new_pid));
+                return;
+            }
         }
 
         self.ptable[new_pid].state = State::Running;
@@ -160,6 +251,7 @@ impl ProcessManager {
     }
 
     pub fn create_process(&mut self, name: &str, priority: usize) -> usize {
+        self.defer_schedule(DeferCommand::Start);
         // search free process entry
         let mut count = 0_usize;
         let mut idx = self.curr_pid;
@@ -199,7 +291,63 @@ impl ProcessManager {
 
         self.setup_process(pid);
 
+        self.defer_schedule(DeferCommand::Stop);
+
         pid
+    }
+
+    pub fn wakeup(&mut self) {
+        let mask = interrupt_disable();
+
+        let ptr = self.sleep_queue.pop_front();
+        if let Some(mut p) = ptr {
+            let proc_delay = p.as_mut();
+            if proc_delay.delay >= 1 {
+                (*proc_delay).delay -= 1;
+            }
+
+            self.sleep_queue.push_front(p);
+
+            let mut cursor = self.sleep_queue.front_mut();
+            let mut pids = Vec::new();
+            while let Some(p) = cursor.get() {
+                if p.delay == 0 {
+                    pids.push(p.pid);
+                    cursor.remove();
+                } else {
+                    break;
+                }
+            }
+            drop(cursor);
+
+            for pid in pids.into_iter() {
+                self.ready(pid);
+            }
+        }
+
+        interrupt_restore(mask);
+    }
+
+    pub fn sleep(&mut self, pid: usize, delay: usize) {
+        let mask = interrupt_disable();
+        self.ptable[pid].state = State::Sleep;
+
+        let mut insert_node = self.sleep_queue.front_mut();
+        let mut curr_delay: usize = 0;
+        while let Some(node) = insert_node.get() {
+            if node.delay > delay {
+                break;
+            }
+            curr_delay = node.delay;
+
+            insert_node.move_next();
+        }
+
+        insert_node.insert_before(Box::new(ProcessDelay::new(pid, delay - curr_delay)));
+
+        interrupt_restore(mask);
+
+        self.schedule();
     }
 }
 
