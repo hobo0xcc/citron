@@ -58,6 +58,14 @@ pub unsafe fn sys_sleep(pm: &mut ProcessManager, delay: usize) -> usize {
     0
 }
 
+pub unsafe fn sys_kill(pm: &mut ProcessManager) -> usize {
+    let pid = pm.ptable[pm.running].pid;
+    pm.kill(pid);
+    println!("killed: {}", pid);
+
+    0
+}
+
 pub unsafe fn execute_syscall() -> usize {
     let info = syscall_info();
     let pm = process_manager();
@@ -70,6 +78,7 @@ pub unsafe fn execute_syscall() -> usize {
             info.get_arg_raw(3),
         ),
         35 => sys_sleep(pm, info.get_arg_raw(1)),
+        62 => sys_kill(pm),
         _ => unimplemented!(),
     };
 

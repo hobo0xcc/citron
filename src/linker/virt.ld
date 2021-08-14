@@ -19,6 +19,8 @@ SECTIONS
     *(trampsec)
     . = ALIGN(0x1000);
     ASSERT(. - _trampoline == 0x1000, "error: trampoline larger than one page");
+    *(killmesec)
+    . = ALIGN(0x1000);
   }
 
   .rodata : {

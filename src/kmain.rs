@@ -9,6 +9,7 @@ pub extern "C" fn test_proc1() {
             asm!("mv a2, {}", in(reg)(&mut str_arr as *mut u8));
             asm!("li a0, 1", "li a1, 0", "li a3, 1", "ecall",);
             asm!("li a0, 35", "li a1, 10", "ecall");
+            return;
         }
     }
     // loop {}
@@ -23,6 +24,7 @@ pub extern "C" fn test_proc2() {
             asm!("mv a2, {}", in(reg)(&mut str_arr as *mut u8));
             asm!("li a0, 1", "li a1, 0", "li a3, 1", "ecall",);
             asm!("li a0, 35", "li a1, 10", "ecall");
+            return;
         }
     }
     // loop {}
@@ -36,7 +38,7 @@ pub extern "C" fn test_proc3() {
         unsafe {
             asm!("mv a2, {}", in(reg)(&mut str_arr as *mut u8));
             asm!("li a0, 1", "li a1, 0", "li a3, 1", "ecall",);
-            asm!("li a0, 35", "li a1, 10", "ecall");
+            asm!("li a0, 35", "li a1, 100", "ecall");
         }
     }
     // loop {}

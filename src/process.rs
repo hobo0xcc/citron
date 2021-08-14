@@ -243,11 +243,15 @@ impl ProcessManager {
     }
 
     pub fn setup_process(&mut self, pid: usize) {
-        let kernel_stack_end = self.ptable[pid].kernel_stack + KERNEL_STACK_SIZE;
+        let kernel_stack = self.ptable[pid].kernel_stack;
 
-        self.ptable[pid]
-            .arch_proc
-            .init(ArchProcess::user_trap_return as usize, kernel_stack_end);
+        self.ptable[pid].arch_proc = ArchProcess::new(pid);
+
+        self.ptable[pid].arch_proc.init(
+            ArchProcess::user_trap_return as usize,
+            kernel_stack,
+            KERNEL_STACK_SIZE,
+        );
     }
 
     pub fn create_process(&mut self, name: &str, priority: usize) -> usize {
@@ -321,7 +325,9 @@ impl ProcessManager {
             drop(cursor);
 
             for pid in pids.into_iter() {
-                self.ready(pid);
+                if self.ptable[pid].state == State::Sleep {
+                    self.ready(pid);
+                }
             }
         }
 
@@ -344,6 +350,23 @@ impl ProcessManager {
         }
 
         insert_node.insert_before(Box::new(ProcessDelay::new(pid, delay - curr_delay)));
+
+        interrupt_restore(mask);
+
+        self.schedule();
+    }
+
+    pub fn kill(&mut self, pid: usize) {
+        let mask = interrupt_disable();
+
+        match self.ptable[pid].state {
+            State::Free => {}
+            _ => {
+                self.ptable[pid].state = State::Free;
+            }
+        }
+
+        self.ptable[pid].arch_proc.free();
 
         interrupt_restore(mask);
 

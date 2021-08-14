@@ -2,10 +2,12 @@ extern "C" {
     pub fn trampoline();
     pub fn uservec();
     pub fn userret(trapframe: usize, satp: usize);
+    pub fn killme();
 }
 
 pub const TRAMPOLINE: usize = (1_usize << (9 + 9 + 9 + 12 - 1)) - 0x1000;
 pub const TRAPFRAME: usize = TRAMPOLINE - 0x1000;
+pub const KILLME: usize = TRAPFRAME - 0x1000;
 
 // from xv6
 global_asm!(
@@ -101,4 +103,9 @@ global_asm!(
     "  ld t6, 280(a0)",
     "  csrrw a0, sscratch, a0",
     "  sret",
+    ".section killmesec",
+    ".globl killme",
+    "killme:",
+    "  li a0, 62",
+    "  ecall",
 );

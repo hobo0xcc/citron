@@ -9,6 +9,7 @@ use super::trampoline;
 use super::trap;
 use alloc::alloc::alloc;
 use alloc::alloc::alloc_zeroed;
+use alloc::alloc::dealloc;
 use core::mem;
 use core::ptr::NonNull;
 use core::{alloc::Layout, default::Default};
@@ -154,6 +155,8 @@ pub struct ArchProcess {
     pub trap_frame: *mut TrapFrame,
     pub context: Context,
     pub kernel_stack: usize,
+    pub kernel_stack_size: usize,
+    pub user_stack: usize,
     pub user_stack_size: usize,
     pub pid: usize,
 }
@@ -208,8 +211,24 @@ impl ArchProcess {
             trap_frame,
             context: Default::default(),
             kernel_stack: 0,
+            kernel_stack_size: 0,
+            user_stack: 0,
             user_stack_size: 0,
             pid,
+        }
+    }
+
+    pub fn free(&mut self) {
+        let user_stack_layout = Layout::from_size_align(self.user_stack_size, 0x1000).unwrap();
+        let kernel_stack_layout = Layout::from_size_align(self.kernel_stack_size, 0x1000).unwrap();
+        let page_table_layout = Layout::from_size_align(0x1000, 0x1000).unwrap();
+        let trap_frame_layout = Layout::from_size_align(0x1000, 0x1000).unwrap();
+
+        unsafe {
+            dealloc(self.user_stack as *mut u8, user_stack_layout);
+            dealloc(self.kernel_stack as *mut u8, kernel_stack_layout);
+            dealloc(self.page_table.as_ptr() as *mut u8, page_table_layout);
+            dealloc(self.trap_frame as *mut u8, trap_frame_layout);
         }
     }
 
@@ -232,14 +251,16 @@ impl ArchProcess {
         }
     }
 
-    pub fn init(&mut self, start: usize, kernel_stack: usize) {
+    pub fn init(&mut self, start: usize, kernel_stack: usize, kernel_stack_size: usize) {
         self.kernel_stack = kernel_stack;
+        self.kernel_stack_size = kernel_stack_size;
         self.setup_pagetable();
-        self.init_context(start, kernel_stack);
+        self.init_context(start, kernel_stack + kernel_stack_size);
 
         unsafe {
             (*self.trap_frame).epc = PROC_START;
             (*self.trap_frame).sp = USER_STACK_START;
+            (*self.trap_frame).ra = trampoline::KILLME;
         }
     }
 
@@ -306,7 +327,7 @@ impl ArchProcess {
         let satp_val = Csr::Satp.read();
         // let page_table = ((satp_val & !(8 << 60)) << 12) as *mut paging::Table;
         (*self.trap_frame).kernel_satp = satp_val;
-        (*self.trap_frame).kernel_sp = self.kernel_stack;
+        (*self.trap_frame).kernel_sp = self.kernel_stack + self.kernel_stack_size;
         (*self.trap_frame).kernel_trap = Self::user_trap as usize;
 
         let mut sstatus = Csr::Sstatus.read();
@@ -351,9 +372,19 @@ impl ArchProcess {
                 paging::EntryBits::R.val() | paging::EntryBits::W.val(),
                 0,
             );
+            paging::map(
+                self.page_table.as_mut(),
+                trampoline::KILLME,
+                trampoline::killme as usize,
+                paging::EntryBits::R.val()
+                    | paging::EntryBits::X.val()
+                    | paging::EntryBits::U.val(),
+                0,
+            );
 
-            let stack_layout = Layout::from_size_align(0x1000, 0x1000).unwrap();
+            let stack_layout = Layout::from_size_align(USER_STACK_SIZE, 0x1000).unwrap();
             let user_stack = alloc(stack_layout) as usize;
+            self.user_stack = user_stack;
             self.user_stack_size = USER_STACK_SIZE;
             paging::map(
                 self.page_table.as_mut(),
