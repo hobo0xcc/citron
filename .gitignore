@@ -2,3 +2,4 @@
 Cargo.lock
 kernel.elf
 disk.img
+.gdb_history
