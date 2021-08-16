@@ -4,9 +4,11 @@ use crate::*;
 use super::csr::Csr;
 use super::interrupt;
 use super::paging;
+use super::plic;
 use super::syscall;
 use super::trampoline;
 use super::trap;
+use super::virtio;
 use alloc::alloc::alloc;
 use alloc::alloc::alloc_zeroed;
 use alloc::alloc::dealloc;
@@ -273,7 +275,23 @@ impl ArchProcess {
                 pm.wakeup();
                 pm.schedule();
             }
-            _ => {}
+            9 => {
+                let irq = plic::claim();
+                if (irq as usize) >= plic::Irq::VirtioFirstIrq.val()
+                    && (irq as usize) <= plic::Irq::VirtioEndIrq.val()
+                {
+                    virtio::interrupt(irq);
+                } else if (irq as usize) == plic::Irq::UartIrq.val() {
+                    // TODO: uart interrupt handler
+                }
+
+                if irq != 0 {
+                    plic::complete(irq as u32);
+                }
+            }
+            _ => {
+                println!("unknown interrupt: {}", code);
+            }
         }
     }
 

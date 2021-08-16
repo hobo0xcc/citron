@@ -12,11 +12,13 @@ pub mod target {
     pub use super::riscv64::layout;
     pub use super::riscv64::nullproc;
     pub use super::riscv64::paging;
+    pub use super::riscv64::plic;
     pub use super::riscv64::process;
     pub use super::riscv64::serial;
     pub use super::riscv64::start;
     pub use super::riscv64::syscall;
     pub use super::riscv64::trap;
+    pub use super::riscv64::virtio;
 }
 
 pub mod paging;

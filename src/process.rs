@@ -7,6 +7,7 @@ use crate::*;
 use alloc::alloc::alloc;
 use alloc::boxed::Box;
 use alloc::collections::binary_heap::BinaryHeap;
+use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use array_init::array_init;
 use core::alloc::Layout;
@@ -22,10 +23,12 @@ pub enum State {
     Ready,
     Suspend,
     Sleep,
+    SemaWait,
+    IOWait,
     Free,
 }
 
-pub const KERNEL_STACK_SIZE: usize = 0x2000;
+pub const KERNEL_STACK_SIZE: usize = 0x100000;
 
 #[derive(Copy, Clone)]
 #[allow(dead_code)]
@@ -123,11 +126,35 @@ pub enum DeferCommand {
     Stop,
 }
 
+#[derive(Eq, PartialEq)]
+pub enum SemaState {
+    Used,
+    Free,
+}
+
+pub struct Semaphore {
+    state: SemaState,
+    count: isize,
+    queue: VecDeque<usize>, // wait process queue
+}
+
+impl Semaphore {
+    pub fn new(count: isize) -> Self {
+        Semaphore {
+            state: SemaState::Free,
+            count,
+            queue: VecDeque::new(),
+        }
+    }
+}
+
 const PTABLE_SIZE: usize = 16;
+const STABLE_SIZE: usize = 16;
 
 #[allow(dead_code)]
 pub struct ProcessManager {
     pub ptable: [Process; PTABLE_SIZE],
+    pub stable: [Semaphore; STABLE_SIZE],
     pub pqueue: BinaryHeap<ProcessDesc>, // Ready list
     sleep_queue: LinkedList<ProcessDelayAdapter>,
     defer: DeferScheduler,
@@ -137,14 +164,12 @@ pub struct ProcessManager {
 
 impl ProcessManager {
     pub fn new() -> Self {
-        let mut ptable: [Process; PTABLE_SIZE] = array_init(|i| Process::new(i)); // [Process::new(0); PTABLE_SIZE];
-        for (_i, p) in ptable.iter_mut().enumerate() {
-            // p.pid = i;
-            p.state = State::Free;
-        }
+        let ptable: [Process; PTABLE_SIZE] = array_init(|i| Process::new(i)); // [Process::new(0); PTABLE_SIZE];
+        let stable: [Semaphore; STABLE_SIZE] = array_init(|_i| Semaphore::new(1));
 
         ProcessManager {
             ptable,
+            stable,
             pqueue: BinaryHeap::new(),
             sleep_queue: LinkedList::new(ProcessDelayAdapter::new()),
             defer: DeferScheduler::new(),
@@ -158,10 +183,71 @@ impl ProcessManager {
     }
 
     pub fn init(&mut self) {
-        let pid = self.create_process("null", 0);
+        let pid = self.create_process("null", 0, true);
         self.load_program(pid, nullproc::null_proc as usize, 0x1000);
         self.ptable[pid].state = State::Running;
         self.running = pid;
+    }
+
+    pub fn create_semaphore(&mut self, count: isize) -> usize {
+        let mask = interrupt_disable();
+
+        for (i, sema) in self.stable.iter_mut().enumerate() {
+            if sema.state == SemaState::Free {
+                sema.state = SemaState::Used;
+                sema.count = count;
+                interrupt_restore(mask);
+                return i;
+            }
+        }
+
+        interrupt_restore(mask);
+        panic!("semaphore exhausted");
+    }
+
+    pub fn wait_semaphore(&mut self, sid: usize) {
+        let mask = interrupt_disable();
+
+        let pid = self.running;
+        let sema = &mut self.stable[sid];
+        sema.count -= 1;
+        if sema.count < 0 {
+            self.ptable[pid].state = State::SemaWait;
+            sema.queue.push_back(pid);
+            self.schedule();
+        }
+
+        interrupt_restore(mask);
+    }
+
+    pub fn signal_semaphore(&mut self, sid: usize) {
+        let mask = interrupt_disable();
+
+        if self.stable[sid].count < 0 {
+            let pid = self.stable[sid].queue.pop_front().unwrap();
+            self.ready(pid);
+        }
+        self.stable[sid].count += 1;
+
+        interrupt_restore(mask);
+    }
+
+    pub fn delete_semaphore(&mut self, sid: usize) {
+        let mask = interrupt_disable();
+
+        self.stable[sid].state = SemaState::Free;
+
+        self.defer_schedule(DeferCommand::Start);
+
+        while self.stable[sid].count < 0 {
+            let pid = self.stable[sid].queue.pop_front().unwrap();
+            self.ready(pid);
+            self.stable[sid].count += 1;
+        }
+
+        self.defer_schedule(DeferCommand::Stop);
+
+        interrupt_restore(mask);
     }
 
     pub fn pop_ready_proc(&mut self) -> Option<ProcessDesc> {
@@ -169,7 +255,6 @@ impl ProcessManager {
 
         while let Some(p) = proc_desc {
             if self.ptable[p.pid].state == State::Ready {
-                // println!("{}: {:?}", p.pid, self.ptable[p.pid].state);
                 break;
             }
 
@@ -242,6 +327,16 @@ impl ProcessManager {
         self.pqueue.push(ProcessDesc::new(priority, pid));
     }
 
+    pub fn setup_kernel_process(&mut self, pid: usize, func: usize) {
+        let kernel_stack = self.ptable[pid].kernel_stack;
+
+        self.ptable[pid].arch_proc = ArchProcess::new(pid);
+
+        self.ptable[pid]
+            .arch_proc
+            .init(func, kernel_stack, KERNEL_STACK_SIZE);
+    }
+
     pub fn setup_process(&mut self, pid: usize) {
         let kernel_stack = self.ptable[pid].kernel_stack;
 
@@ -254,7 +349,14 @@ impl ProcessManager {
         );
     }
 
-    pub fn create_process(&mut self, name: &str, priority: usize) -> usize {
+    pub fn create_kernel_process(&mut self, name: &str, priority: usize, func: usize) -> usize {
+        let pid = self.create_process(name, priority, false);
+        self.setup_kernel_process(pid, func);
+
+        pid
+    }
+
+    pub fn create_process(&mut self, name: &str, priority: usize, do_setup: bool) -> usize {
         self.defer_schedule(DeferCommand::Start);
         // search free process entry
         let mut count = 0_usize;
@@ -293,7 +395,9 @@ impl ProcessManager {
         let pid = proc.pid;
         drop(proc);
 
-        self.setup_process(pid);
+        if do_setup {
+            self.setup_process(pid);
+        }
 
         self.defer_schedule(DeferCommand::Stop);
 
@@ -339,17 +443,25 @@ impl ProcessManager {
         self.ptable[pid].state = State::Sleep;
 
         let mut insert_node = self.sleep_queue.front_mut();
-        let mut curr_delay: usize = 0;
+        let mut delay_sum: usize = 0;
         while let Some(node) = insert_node.get() {
-            if node.delay > delay {
+            if delay < (delay_sum + node.delay) {
                 break;
             }
-            curr_delay = node.delay;
+            delay_sum += node.delay;
 
             insert_node.move_next();
         }
 
-        insert_node.insert_before(Box::new(ProcessDelay::new(pid, delay - curr_delay)));
+        let relative_delay = delay - delay_sum;
+        insert_node.insert_before(Box::new(ProcessDelay::new(pid, relative_delay)));
+        if let Some(node) = insert_node.get() {
+            let pid = node.pid;
+            let delay = node.delay;
+            drop(node);
+            let _ =
+                insert_node.replace_with(Box::new(ProcessDelay::new(pid, delay - relative_delay)));
+        }
 
         interrupt_restore(mask);
 
@@ -371,6 +483,22 @@ impl ProcessManager {
         interrupt_restore(mask);
 
         self.schedule();
+    }
+
+    pub fn io_wait(&mut self, pid: usize) {
+        let mask = interrupt_disable();
+
+        self.ptable[pid].state = State::IOWait;
+
+        interrupt_restore(mask);
+    }
+
+    pub fn io_signal(&mut self, pid: usize) {
+        let mask = interrupt_disable();
+
+        self.ready(pid);
+
+        interrupt_restore(mask);
     }
 }
 

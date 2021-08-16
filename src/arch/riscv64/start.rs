@@ -81,6 +81,10 @@ pub unsafe extern "C" fn start() {
     mie_val |= 1 << 7;
     Csr::Mie.write(mie_val);
 
+    let mut sie_val = Csr::Sie.read();
+    sie_val |= 1 << 9;
+    Csr::Sie.write(sie_val);
+
     asm!("csrr tp, mhartid");
 
     Csr::Stvec.write(trap::kernelvec as usize);
