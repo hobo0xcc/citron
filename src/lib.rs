@@ -14,7 +14,7 @@
 
 extern crate alloc;
 extern crate array_init;
-extern crate fatfs;
+// extern crate std;
 // extern crate fscommon;
 extern crate intrusive_collections;
 // extern crate riscv;

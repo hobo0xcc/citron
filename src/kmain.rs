@@ -1,25 +1,35 @@
-use crate::arch::riscv64::interrupt;
+use crate::arch::target::interrupt;
 use crate::*;
-use alloc::alloc::alloc_zeroed;
-use core::alloc::Layout;
 
 // kernel process
 #[no_mangle]
 pub extern "C" fn kproc() {
-    let blk = unsafe { arch::target::virtio::block_device() };
-    let layout = Layout::from_size_align(512, 512).unwrap();
-    let buffer = unsafe { alloc_zeroed(layout) };
-    blk.read_sector(0, buffer);
-    println!("kernel.elf:");
-    unsafe {
-        for i in 0..512 {
-            if i % 16 == 0 {
-                println!();
+    let gpu = unsafe { arch::target::virtio::gpu_device() };
+    gpu.init_display();
+    let width = gpu.get_width();
+    let height = gpu.get_height();
+    let framebuffer = gpu.get_framebuffer() as *mut u32;
+    for x in 0..width {
+        for y in 0..height {
+            unsafe {
+                let idx = y * width + x;
+                framebuffer.add(idx as usize).write(x * y);
             }
-            print!("{:02x} ", buffer.add(i).read());
         }
     }
-    println!();
+    gpu.update_display();
+    // let blk = unsafe { arch::target::virtio::block_device() };
+    // let layout = Layout::from_size_align(512, 512).unwrap();
+    // let buffer = unsafe { slice::from_raw_parts_mut(alloc_zeroed(layout), 512) };
+    // let _ = blk.read_sector(0, buffer);
+    // println!("kernel.elf:");
+    // for i in 0..512 {
+    //     if i % 16 == 0 {
+    //         println!();
+    //     }
+    //     print!("{:02x} ", buffer[i]);
+    // }
+    // println!();
     loop {}
 }
 
@@ -47,6 +57,7 @@ pub extern "C" fn kmain() {
 
     // start preemption
     interrupt::timer_interrupt_on();
+    interrupt::interrupt_on();
 
     pm.schedule();
     loop {

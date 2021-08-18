@@ -18,7 +18,7 @@ qemu: $(BIN) $(DISK)
 	-global virtio-mmio.force-legacy=false \
 	-drive file=$(DISK),format=raw,id=hd0 \
 	-device virtio-blk-device,drive=hd0,bus=virtio-mmio-bus.0 \
-	-nographic \
+	-device virtio-gpu-device,bus=virtio-mmio-bus.1 \
 	-monitor none \
 	-serial stdio
 

@@ -6,6 +6,7 @@ pub mod target {
     pub use super::riscv64::boot;
     pub use super::riscv64::clint;
     pub use super::riscv64::csr;
+    pub use super::riscv64::fs;
     pub use super::riscv64::fw_cfg;
     pub use super::riscv64::init;
     pub use super::riscv64::interrupt;

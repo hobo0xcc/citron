@@ -54,8 +54,11 @@ pub extern "C" fn init() {
     // virtio priority
     // TODO: add more virtio devices
     write_reg32(Irq::VirtioFirstIrq.val() * 4, 1);
+    write_reg32((Irq::VirtioFirstIrq.val() + 1) * 4, 1);
 
-    let senable = (1 << Irq::UartIrq.val()) | (1 << Irq::VirtioFirstIrq.val());
+    let senable = (1 << Irq::UartIrq.val())
+        | (1 << Irq::VirtioFirstIrq.val())
+        | (1 << (Irq::VirtioFirstIrq.val() + 1));
     write_reg32(PlicReg::Senable.val(), senable);
 
     write_reg32(PlicReg::Spriority.val(), 0);

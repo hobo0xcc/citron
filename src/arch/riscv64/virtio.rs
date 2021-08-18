@@ -1,9 +1,11 @@
 pub mod virtio_blk;
+pub mod virtio_gpu;
 
 use super::{layout, plic};
 use crate::*;
 
 pub static mut BLOCK_DEVICE: Option<virtio_blk::VirtioBlk> = None;
+pub static mut GPU_DEVICE: Option<virtio_gpu::VirtioGpu> = None;
 
 #[derive(Copy, Clone)]
 pub enum VirtioReg {
@@ -187,12 +189,23 @@ pub unsafe fn block_device() -> &'static mut virtio_blk::VirtioBlk {
     }
 }
 
+pub unsafe fn gpu_device() -> &'static mut virtio_gpu::VirtioGpu {
+    match GPU_DEVICE {
+        Some(ref mut gpu) => gpu,
+        None => panic!("gpu device is uninitialized"),
+    }
+}
+
 pub fn interrupt(irq: u32) {
     let index = irq as usize - plic::Irq::VirtioFirstIrq.val();
     match index {
         0 => {
             let blk = unsafe { block_device() };
             blk.pending();
+        }
+        1 => {
+            let gpu = unsafe { gpu_device() };
+            gpu.pending();
         }
         _ => panic!("unknown virtio device: {}", index),
     }
@@ -203,7 +216,7 @@ pub fn init() {
     let virtio_base = layout::_virtio_start as usize;
     // let virtio_end = layout::_virtio_end as usize;
 
-    for i in 0..1 {
+    for i in 0..2 {
         let offset = i * 0x1000;
         let ptr = virtio_base + offset;
         if read_reg32(ptr, VirtioReg::MagicValue.val()) != 0x74726976 {
@@ -216,6 +229,13 @@ pub fn init() {
                 println!("virtio_blk: {:#018x}", ptr);
                 unsafe {
                     BLOCK_DEVICE = Some(blk);
+                }
+            }
+            16 => {
+                let gpu = virtio_gpu::init(ptr);
+                println!("virtio_gpu: {:#018x}", ptr);
+                unsafe {
+                    GPU_DEVICE = Some(gpu);
                 }
             }
             _ => {}

@@ -1,3 +1,4 @@
+use super::super::fs;
 use super::super::virtio;
 use super::super::virtio::*;
 use crate::process::process_manager;
@@ -223,14 +224,6 @@ impl VirtioBlk {
         self.read_reg64(0x100) as usize
     }
 
-    pub fn read_sector(&mut self, sector: usize, buffer: *mut u8) {
-        self.block_op(buffer, 512, sector, false);
-    }
-
-    pub fn write_sector(&mut self, sector: usize, buffer: *mut u8) {
-        self.block_op(buffer, 512, sector, true);
-    }
-
     pub fn block_op(&mut self, buffer: *mut u8, size: usize, sector: usize, write: bool) {
         let pm = unsafe { process_manager() };
 
@@ -327,6 +320,16 @@ impl VirtioBlk {
         let pm = unsafe { process_manager() };
         pm.io_signal(self.pid);
         pm.signal_semaphore(self.sid);
+    }
+}
+
+impl fs::Disk for VirtioBlk {
+    fn read_sector(&mut self, sector: usize, buffer: &mut [u8]) {
+        self.block_op(buffer.as_mut_ptr(), 512, sector, false);
+    }
+
+    fn write_sector(&mut self, sector: usize, buffer: &mut [u8]) {
+        self.block_op(buffer.as_mut_ptr(), 512, sector, true);
     }
 }
 

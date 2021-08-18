@@ -1,6 +1,7 @@
 pub mod boot;
 pub mod clint;
 pub mod csr;
+pub mod fs;
 pub mod fw_cfg;
 pub mod init;
 pub mod interrupt;

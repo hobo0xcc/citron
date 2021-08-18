@@ -99,7 +99,7 @@ SECTIONS
 
   . = 0x10001000;
   PROVIDE(_virtio_start = .);
-  . = . + 0x1000;
+  . = . + 0x8000;
   PROVIDE(_virtio_end = .);
 
   . = 0x10100000;
