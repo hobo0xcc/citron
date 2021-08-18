@@ -8,6 +8,9 @@ version = "0.1.0"
 [dependencies]
 array-init = "2.0.0"
 intrusive-collections = "0.9.2"
+libm = "0.2.1"
+micromath = "2.0.0"
+tiny-skia = {version = "0.5.1", default-features = false, features = ["libm"]}
 
 [[bin]]
 name = "citron"

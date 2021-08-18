@@ -53,11 +53,13 @@ pub unsafe extern "C" fn start() {
     mstatus_val |= 1 << 7; // MPIE
     mstatus_val |= 1 << 1; // SIE
     mstatus_val |= 1 << 3; // MIE
+    mstatus_val |= 1 << 13; // FS
     Csr::Mstatus.write(mstatus_val);
 
     let mut sstatus_val = Csr::Sstatus.read();
     sstatus_val |= 1 << 5; // SPIE
     sstatus_val |= 1 << 1; // SIE
+    sstatus_val |= 1 << 13; // FS
     Csr::Sstatus.write(sstatus_val);
 
     // Jump to main

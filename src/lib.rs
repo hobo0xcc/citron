@@ -14,9 +14,9 @@
 
 extern crate alloc;
 extern crate array_init;
-// extern crate std;
-// extern crate fscommon;
 extern crate intrusive_collections;
+extern crate libm;
+extern crate tiny_skia;
 // extern crate riscv;
 
 pub mod allocator;
