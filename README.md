@@ -10,7 +10,7 @@ Citron is an operating system written in Rust. Currently supports RISC-V virt ma
 ### Rust
 
 1. [https://www.rust-lang.org/tools/install](https://www.rust-lang.org/tools/install)
-2. `rustup install nightly`
+2. `rustup toolchain install nightly && rustup default nightly`
 
 ### macOS
 

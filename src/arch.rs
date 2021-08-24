@@ -8,6 +8,7 @@ pub mod target {
     pub use super::riscv64::csr;
     pub use super::riscv64::fs;
     pub use super::riscv64::fw_cfg;
+    pub use super::riscv64::graphics;
     pub use super::riscv64::init;
     pub use super::riscv64::interrupt;
     pub use super::riscv64::layout;

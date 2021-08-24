@@ -6,21 +6,26 @@
     asm,
     start,
     alloc_error_handler,
-    const_raw_ptr_to_usize_cast,
     fn_align,
     once_cell
 )]
+#![allow(named_asm_labels)]
 // #![no_implicit_prelude]
 
 extern crate alloc;
 extern crate array_init;
+extern crate embedded_graphics;
+extern crate fontdue;
 extern crate intrusive_collections;
 extern crate libm;
 extern crate tiny_skia;
+extern crate tinybmp;
+extern crate volatile_register;
 // extern crate riscv;
 
 pub mod allocator;
 pub mod arch;
+pub mod graphics;
 pub mod init;
 pub mod kmain;
 pub mod process;
@@ -69,7 +74,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 extern "C" fn abort() -> ! {
     loop {
         unsafe {
-            llvm_asm!("wfi"::::"volatile");
+            asm!("wfi");
         }
     }
 }

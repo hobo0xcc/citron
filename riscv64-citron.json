@@ -7,7 +7,7 @@
   "emit-debug-gdb-scripts": false,
   "executables": true,
   "features": "+m,+a,+f,+d,+c",
-  "is-builtin": true,
+  "is-builtin": false,
   "linker": "rust-lld",
   "linker-flavor": "ld.lld",
   "llvm-abiname": "lp64",
@@ -16,21 +16,5 @@
   "panic-strategy": "abort",
   "relocation-model": "static",
   "target-pointer-width": "64",
-  "os": "none",
-  "unsupported-abis": [
-    "cdecl",
-    "stdcall",
-    "stdcall-unwind",
-    "fastcall",
-    "vectorcall",
-    "thiscall",
-    "thiscall-unwind",
-    "aapcs",
-    "win64",
-    "sysv64",
-    "ptx-kernel",
-    "msp430-interrupt",
-    "x86-interrupt",
-    "amdgpu-kernel"
-  ]
+  "os": "none"
 }

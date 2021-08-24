@@ -1,11 +1,15 @@
 pub mod virtio_blk;
 pub mod virtio_gpu;
+pub mod virtio_input;
 
 use super::{layout, plic};
+use crate::arch::riscv64::virtio::virtio_input::DeviceType;
 use crate::*;
 
 pub static mut BLOCK_DEVICE: Option<virtio_blk::VirtioBlk> = None;
 pub static mut GPU_DEVICE: Option<virtio_gpu::VirtioGpu> = None;
+pub static mut MOUSE_DEVICE: Option<virtio_input::VirtioInput> = None;
+pub static mut KEYBOARD_DEVICE: Option<virtio_input::VirtioInput> = None;
 
 #[derive(Copy, Clone)]
 pub enum VirtioReg {
@@ -196,6 +200,20 @@ pub unsafe fn gpu_device() -> &'static mut virtio_gpu::VirtioGpu {
     }
 }
 
+pub unsafe fn mouse_device() -> &'static mut virtio_input::VirtioInput {
+    match MOUSE_DEVICE {
+        Some(ref mut mouse) => mouse,
+        None => panic!("mouse device is uninitialized"),
+    }
+}
+
+pub unsafe fn keyboard_device() -> &'static mut virtio_input::VirtioInput {
+    match KEYBOARD_DEVICE {
+        Some(ref mut keyboard) => keyboard,
+        None => panic!("keyboard device is uninitialized"),
+    }
+}
+
 pub fn interrupt(irq: u32) {
     let index = irq as usize - plic::Irq::VirtioFirstIrq.val();
     match index {
@@ -207,6 +225,14 @@ pub fn interrupt(irq: u32) {
             let gpu = unsafe { gpu_device() };
             gpu.pending();
         }
+        2 => {
+            let mouse = unsafe { mouse_device() };
+            mouse.pending();
+        }
+        3 => {
+            let keyboard = unsafe { keyboard_device() };
+            keyboard.pending();
+        }
         _ => panic!("unknown virtio device: {}", index),
     }
 }
@@ -216,7 +242,7 @@ pub fn init() {
     let virtio_base = layout::_virtio_start as usize;
     // let virtio_end = layout::_virtio_end as usize;
 
-    for i in 0..2 {
+    for i in 0..4 {
         let offset = i * 0x1000;
         let ptr = virtio_base + offset;
         if read_reg32(ptr, VirtioReg::MagicValue.val()) != 0x74726976 {
@@ -238,7 +264,32 @@ pub fn init() {
                     GPU_DEVICE = Some(gpu);
                 }
             }
-            _ => {}
+            18 => {
+                let device_type = match i {
+                    2 => DeviceType::Mouse,
+                    3 => DeviceType::Keyboard,
+                    _ => unimplemented!(),
+                };
+                let input = virtio_input::init(ptr, device_type);
+                println!("virtio_input: {:#018x}", ptr);
+                unsafe {
+                    match i {
+                        2 => {
+                            MOUSE_DEVICE = Some(input);
+                        }
+                        3 => {
+                            KEYBOARD_DEVICE = Some(input);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {
+                println!(
+                    "unknown virtio-device: {}",
+                    read_reg32(ptr, VirtioReg::DeviceId.val())
+                );
+            }
         }
     }
 }

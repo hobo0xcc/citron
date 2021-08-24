@@ -1,4 +1,5 @@
 use crate::arch::riscv64::interrupt::interrupt_disable;
+use crate::arch::riscv64::interrupt::interrupt_on;
 use crate::arch::riscv64::interrupt::interrupt_restore;
 use crate::arch::target::nullproc;
 use crate::arch::target::process::Context;
@@ -28,7 +29,7 @@ pub enum State {
     Free,
 }
 
-pub const KERNEL_STACK_SIZE: usize = 0x100000;
+pub const KERNEL_STACK_SIZE: usize = 0x10000;
 
 #[derive(Copy, Clone)]
 #[allow(dead_code)]
@@ -211,13 +212,19 @@ impl ProcessManager {
         let pid = self.running;
         let sema = &mut self.stable[sid];
         sema.count -= 1;
+        let mut do_sched = false;
         if sema.count < 0 {
             self.ptable[pid].state = State::SemaWait;
             sema.queue.push_back(pid);
-            self.schedule();
+            do_sched = true;
+            // self.schedule();
         }
 
         interrupt_restore(mask);
+
+        if do_sched {
+            self.schedule();
+        }
     }
 
     pub fn signal_semaphore(&mut self, sid: usize) {
@@ -315,6 +322,10 @@ impl ProcessManager {
 
         self.ptable[new_pid].state = State::Running;
         self.running = new_pid;
+
+        // println!("interrupt: {}", is_interrupt_enable());
+
+        interrupt_on();
 
         unsafe {
             context_switch(old_context as usize, new_context as usize);

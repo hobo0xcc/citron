@@ -1,3 +1,6 @@
+use crate::arch::riscv64::interrupt::interrupt_disable;
+use crate::arch::riscv64::interrupt::interrupt_restore;
+use crate::arch::riscv64::interrupt::is_interrupt_enable;
 use crate::process::process_manager;
 use alloc::alloc::{alloc, alloc_zeroed, dealloc};
 use alloc::vec::Vec;
@@ -215,15 +218,15 @@ pub enum VirtioGpuQueue {
 
 pub struct VirtioGpu {
     base: usize,
-    framebuffer: *mut u8,
+    pub framebuffer: *mut u8,
     virtqueue: [NonNull<Virtqueue>; 2],
     curr_queue: VirtioGpuQueue,
     free_desc: [bool; VIRTIO_RING_SIZE], // true if the desc is free
     desc_indexes: Option<Vec<u16>>,
     ack_used_index: u16,
     resource_id: u32,
-    width: u32,
-    height: u32,
+    pub width: u32,
+    pub height: u32,
     sid: usize, // Semaphore id
     pid: usize,
 }
@@ -392,14 +395,6 @@ impl VirtioGpu {
         pm.signal_semaphore(self.sid);
     }
 
-    pub fn get_width(&mut self) -> u32 {
-        self.width
-    }
-
-    pub fn get_height(&mut self) -> u32 {
-        self.height
-    }
-
     pub fn get_pixel_size(&mut self) -> u32 {
         PIXEL_SIZE
     }
@@ -465,8 +460,16 @@ impl VirtioGpu {
             self.desc_indexes = Some(desc_indexes);
             pm.io_wait(self.pid);
             self.write_reg32(VirtioReg::QueueNotify.val(), queue as u32);
+            if !is_interrupt_enable() {
+                println!("interrupt isn't enabled!");
+            }
             pm.schedule();
         }
+    }
+
+    pub fn update_range(&mut self, x: u32, y: u32, width: u32, height: u32) {
+        self.transfer_to_host_2d(x, y, width, height, self.resource_id);
+        self.resource_flush(x, y, width, height, self.resource_id);
     }
 
     pub fn update_display(&mut self) {
@@ -732,7 +735,7 @@ impl VirtioGpu {
         let response_type = unsafe { (*req).response.type_ };
 
         if response_type != VirtioGpuCtrlType::RespOkNodata.val() {
-            panic!("virtio_gpu: transfer_to_host_2d error {:?}", response_type);
+            // panic!("virtio_gpu: transfer_to_host_2d error {:?}", response_type);
         }
     }
 
@@ -777,14 +780,18 @@ impl VirtioGpu {
 
         self.send_desc(VirtioGpuQueue::Controlq, desc_indexes);
 
+        // println!("resource_flush type: {}", unsafe { (*req).response.type_ });
+
         let response_type = unsafe { (*req).response.type_ };
 
         if response_type != VirtioGpuCtrlType::RespOkNodata.val() {
-            panic!("virtio_gpu: resource_flush error {:?}", response_type);
+            // panic!("virtio_gpu: resource_flush error {:?}", response_type);
         }
     }
 
     pub fn pending(&mut self) {
+        // println!("virtio_gpu pending start");
+        let mask = interrupt_disable();
         let interrupt_status = self.read_reg32(VirtioReg::InterruptStatus.val());
         self.write_reg32(VirtioReg::InterruptACK.val(), interrupt_status & 0x3);
         let virtqueue = unsafe { self.virtqueue[self.curr_queue as usize].as_mut() };
@@ -812,6 +819,9 @@ impl VirtioGpu {
         let pm = unsafe { process_manager() };
         pm.io_signal(self.pid);
         pm.signal_semaphore(self.sid);
+
+        interrupt_restore(mask);
+        // println!("virtio_gpu pending end");
     }
 }
 

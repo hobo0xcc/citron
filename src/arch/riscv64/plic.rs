@@ -29,14 +29,14 @@ impl Irq {
 fn read_reg32(offset: usize) -> u32 {
     let base = layout::_plic_start as usize;
     let ptr = (base + offset) as *mut u32;
-    unsafe { *ptr }
+    unsafe { ptr.read_volatile() }
 }
 
 fn write_reg32(offset: usize, val: u32) {
     let base = layout::_plic_start as usize;
     let ptr = (base + offset) as *mut u32;
     unsafe {
-        *ptr = val;
+        ptr.write_volatile(val);
     }
 }
 
@@ -55,10 +55,14 @@ pub extern "C" fn init() {
     // TODO: add more virtio devices
     write_reg32(Irq::VirtioFirstIrq.val() * 4, 1);
     write_reg32((Irq::VirtioFirstIrq.val() + 1) * 4, 1);
+    write_reg32((Irq::VirtioFirstIrq.val() + 2) * 4, 1);
+    write_reg32((Irq::VirtioFirstIrq.val() + 3) * 4, 1);
 
     let senable = (1 << Irq::UartIrq.val())
         | (1 << Irq::VirtioFirstIrq.val())
-        | (1 << (Irq::VirtioFirstIrq.val() + 1));
+        | (1 << (Irq::VirtioFirstIrq.val() + 1))
+        | (1 << (Irq::VirtioFirstIrq.val() + 2))
+        | (1 << (Irq::VirtioFirstIrq.val() + 3));
     write_reg32(PlicReg::Senable.val(), senable);
 
     write_reg32(PlicReg::Spriority.val(), 0);

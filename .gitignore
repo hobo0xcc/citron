@@ -3,3 +3,4 @@ Cargo.lock
 kernel.elf
 disk.img
 .gdb_history
+.DS_Store
