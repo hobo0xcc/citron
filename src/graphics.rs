@@ -2,13 +2,22 @@ use crate::arch::target::virtio::virtio_gpu::*;
 use crate::arch::target::virtio::*;
 use crate::*;
 use alloc::collections::BTreeMap;
-use alloc::{alloc::alloc_zeroed, boxed::Box, vec::Vec};
+use alloc::{
+    alloc::alloc_zeroed,
+    boxed::Box,
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::alloc::Layout;
 use core::any::Any;
 use embedded_graphics::draw_target::DrawTarget;
+use embedded_graphics::image::Image;
+use embedded_graphics::mono_font::{ascii::*, MonoTextStyleBuilder};
 use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::*;
+use embedded_graphics::text::*;
+use tinybmp::Bmp;
 
 #[cfg(target_arch = "riscv64")]
 pub static mut LAYER_MANAGER: Option<LayerManager<VirtioGpu>> = None;
@@ -17,6 +26,7 @@ pub static mut MOUSE_LAYER_ID: usize = 0;
 pub static mut DESKTOP_LAYER_ID: usize = 0;
 pub static mut OBJECT_ARENA: Option<ObjectArena> = None;
 
+static WALLPAPER: &[u8] = include_bytes!("../resources/wallpaper.bmp") as &[u8];
 static MOUSE_CURSOR: [&str; 23] = [
     "................",
     "................",
@@ -103,7 +113,7 @@ impl Mouse {
 }
 
 impl Object for Mouse {
-    fn draw_to(&self, buffer: &mut FrameBuffer, x: u32, y: u32) {
+    fn draw_to(&mut self, buffer: &mut FrameBuffer, x: u32, y: u32) {
         let width = buffer.get_width();
         let height = buffer.get_height();
         for (ty, s) in MOUSE_CURSOR.iter().enumerate() {
@@ -139,6 +149,7 @@ pub struct WindowFrame {
 
 pub struct Window {
     frame: WindowFrame,
+    title: String,
 }
 
 impl Window {
@@ -151,10 +162,11 @@ impl Window {
                 width,
                 height,
             },
+            title: String::new(),
         }
     }
 
-    pub fn draw_window(&self, buffer: &mut FrameBuffer) {
+    pub fn draw_window(&mut self, buffer: &mut FrameBuffer) {
         let width = buffer.width;
         let height = buffer.height;
 
@@ -171,15 +183,30 @@ impl Window {
         let title_bar_style = PrimitiveStyleBuilder::new()
             .fill_color(Rgb888::new(0x80, 0x80, 0x80))
             .build();
-        Rectangle::new(Point::new(0, 0), Size::new(width, 20))
+        Rectangle::new(Point::new(0, 0), Size::new(width, 30))
             .into_styled(title_bar_style)
             .draw(buffer)
             .expect("draw");
+        self.draw_title(buffer);
+    }
+
+    pub fn draw_title(&self, buffer: &mut FrameBuffer) {
+        let text_style = MonoTextStyleBuilder::new()
+            .font(&FONT_10X20)
+            .text_color(Rgb888::WHITE)
+            .build();
+        Text::new(self.title.as_str(), Point::new(10, 20), text_style)
+            .draw(buffer)
+            .expect("draw");
+    }
+
+    pub fn set_title(&mut self, title: &str) {
+        self.title = title.to_string();
     }
 }
 
 impl Object for Window {
-    fn draw_to(&self, buffer: &mut FrameBuffer, _x: u32, _y: u32) {
+    fn draw_to(&mut self, buffer: &mut FrameBuffer, _x: u32, _y: u32) {
         self.draw_window(buffer);
     }
 
@@ -222,9 +249,13 @@ impl Desktop {
 }
 
 impl Object for Desktop {
-    fn draw_to(&self, buffer: &mut FrameBuffer, _x: u32, _y: u32) {
-        let size = (self.width * self.height) as usize;
-        buffer.copy_buf(self.buffer, size);
+    fn draw_to(&mut self, buffer: &mut FrameBuffer, _x: u32, _y: u32) {
+        let _size = (self.width * self.height) as usize;
+        let bmp = Bmp::<Rgb888>::from_slice(WALLPAPER).unwrap();
+        Image::new(&bmp, Point::new(0, 0))
+            .draw(buffer)
+            .expect("draw");
+        // buffer.copy_buf(self.buffer, size);
         // for x in 0..self.width {
         //     for y in 0..self.height {
         //         painter.draw_at(x, y, self.bg_color);
@@ -257,7 +288,7 @@ impl<T: 'static> AToAny for T {
 }
 
 pub trait Object: AToAny {
-    fn draw_to(&self, buffer: &mut FrameBuffer, x: u32, y: u32);
+    fn draw_to(&mut self, buffer: &mut FrameBuffer, x: u32, y: u32);
     fn get_width(&self) -> u32;
     fn get_height(&self) -> u32;
 }
@@ -637,10 +668,19 @@ impl WindowManager {
         }
     }
 
-    pub fn create_window(&mut self, x: u32, y: u32, width: u32, height: u32) -> ObjectId {
+    pub fn create_window(
+        &mut self,
+        title: &str,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    ) -> ObjectId {
         let arena = unsafe { object_arena() };
 
-        let window = Window::new(width, height);
+        let mut window = Window::new(width, height);
+        window.set_title(title);
+
         let window_id = arena.alloc(Box::new(window));
 
         let lm = unsafe { layer_manager() };
@@ -723,6 +763,6 @@ pub fn init() {
     }
 
     let wm = unsafe { window_manager() };
-    let window_id = wm.create_window(100, 100, 300, 300);
+    let window_id = wm.create_window("Hello", 100, 100, 300, 300);
     wm.show_window(window_id);
 }
