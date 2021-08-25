@@ -102,6 +102,12 @@ pub trait Painter {
     fn get_height(&self) -> u32;
 }
 
+#[derive(Copy, Clone)]
+pub enum ObjectEvent {
+    MouseLeftPress(u32, u32),
+    MouseLeftRelease(u32, u32),
+}
+
 pub struct Mouse {
     transparent: u32,
 }
@@ -129,6 +135,10 @@ impl Object for Mouse {
                 }
             }
         }
+    }
+
+    fn on_event(&mut self, _event: ObjectEvent, _layer_id: LayerId) {
+        // nothing to do
     }
 
     fn get_width(&self) -> u32 {
@@ -180,17 +190,21 @@ impl Window {
             .expect("draw");
 
         // window title bar
-        let title_bar_style = PrimitiveStyleBuilder::new()
-            .fill_color(Rgb888::new(0x80, 0x80, 0x80))
-            .build();
+        self.draw_title_bar(buffer);
+    }
+
+    pub fn draw_title_bar(&self, buffer: &mut FrameBuffer) {
+        let width = buffer.width;
+        let _height = buffer.height;
+
+        let color = Rgb888::new(0x80, 0x80, 0x80);
+
+        let title_bar_style = PrimitiveStyleBuilder::new().fill_color(color).build();
         Rectangle::new(Point::new(0, 0), Size::new(width, 30))
             .into_styled(title_bar_style)
             .draw(buffer)
             .expect("draw");
-        self.draw_title(buffer);
-    }
 
-    pub fn draw_title(&self, buffer: &mut FrameBuffer) {
         let text_style = MonoTextStyleBuilder::new()
             .font(&FONT_10X20)
             .text_color(Rgb888::WHITE)
@@ -208,6 +222,31 @@ impl Window {
 impl Object for Window {
     fn draw_to(&mut self, buffer: &mut FrameBuffer, _x: u32, _y: u32) {
         self.draw_window(buffer);
+    }
+
+    fn on_event(&mut self, event: ObjectEvent, layer_id: LayerId) {
+        match event {
+            ObjectEvent::MouseLeftPress(_x, _y) => {
+                let lm = unsafe { layer_manager() };
+                let mouse_layer_id = unsafe { MOUSE_LAYER_ID };
+
+                if lm.get_layer_height(layer_id) == lm.get_layer_height(mouse_layer_id) - 1 {
+                    return;
+                }
+
+                lm.move_layer(layer_id, lm.get_layer_height(mouse_layer_id) as i32 - 1);
+                lm.update(layer_id);
+            }
+            ObjectEvent::MouseLeftRelease(x, y) => {
+                let lm = unsafe { layer_manager() };
+                let prev_x = lm.get_layer_x(layer_id) as i32;
+                let prev_y = lm.get_layer_y(layer_id) as i32;
+                let next_x = x as i32 - (lm.event_info.pressed_x as i32 - prev_x);
+                let next_y = y as i32 - (lm.event_info.pressed_y as i32 - prev_y);
+                lm.move_abs(layer_id, next_x, next_y);
+                lm.update(layer_id);
+            }
+        }
     }
 
     fn get_width(&self) -> u32 {
@@ -263,6 +302,8 @@ impl Object for Desktop {
         // }
     }
 
+    fn on_event(&mut self, _event: ObjectEvent, _layer_id: LayerId) {}
+
     fn get_width(&self) -> u32 {
         self.width
     }
@@ -289,6 +330,7 @@ impl<T: 'static> AToAny for T {
 
 pub trait Object: AToAny {
     fn draw_to(&mut self, buffer: &mut FrameBuffer, x: u32, y: u32);
+    fn on_event(&mut self, event: ObjectEvent, layer_id: LayerId);
     fn get_width(&self) -> u32;
     fn get_height(&self) -> u32;
 }
@@ -425,9 +467,23 @@ impl Layer {
         self.transparent = Some(color);
     }
 
-    pub fn move_abs(&mut self, x: u32, y: u32) {
-        self.x = x;
-        self.y = y;
+    pub fn move_abs(&mut self, x: i32, y: i32) {
+        let mut new_x = x;
+        let mut new_y = y;
+        let width = self.display_width as i32;
+        let height = self.display_height as i32;
+        if new_x < 0 {
+            new_x = 0;
+        } else if new_x > width {
+            new_x = width;
+        }
+        if new_y < 0 {
+            new_y = 0;
+        } else if new_y > height {
+            new_y = height;
+        }
+        self.x = new_x as u32;
+        self.y = new_y as u32;
     }
 
     pub fn move_rel(&mut self, x: i32, y: i32) {
@@ -450,12 +506,14 @@ impl Layer {
         self.y = new_y as u32;
     }
 
-    pub fn draw_to_buffer(&mut self) {
+    pub fn update_prev_info(&mut self) {
         self.prev_x = self.x;
         self.prev_y = self.y;
         self.prev_width = self.width;
         self.prev_height = self.height;
+    }
 
+    pub fn draw_to_buffer(&mut self) {
         let arena = unsafe { object_arena() };
         arena
             .get_mut(self.object)
@@ -511,11 +569,28 @@ impl Layer {
     }
 }
 
+pub struct EventInfo {
+    pressed_id: LayerId,
+    pressed_x: u32,
+    pressed_y: u32,
+}
+
+impl EventInfo {
+    pub fn new() -> Self {
+        EventInfo {
+            pressed_id: 0,
+            pressed_x: 0,
+            pressed_y: 0,
+        }
+    }
+}
+
 pub struct LayerManager<'a, T: Painter> {
     painter: &'a mut T,
     pub layers: BTreeMap<usize, Layer>,
     layer_stack: Vec<usize>,
     curr_id: LayerId,
+    event_info: EventInfo,
 }
 
 impl<'a, T: Painter> LayerManager<'a, T> {
@@ -525,6 +600,7 @@ impl<'a, T: Painter> LayerManager<'a, T> {
             layers: BTreeMap::new(),
             layer_stack: Vec::new(),
             curr_id: 0,
+            event_info: EventInfo::new(),
         }
     }
 
@@ -569,10 +645,19 @@ impl<'a, T: Painter> LayerManager<'a, T> {
     }
 
     pub fn is_overlapping(x1: u32, x2: u32, x3: u32, x4: u32) -> bool {
-        (x1 <= x3 && x3 <= x2)
-            || (x1 <= x4 && x4 <= x2)
-            || (x3 <= x1 && x1 <= x4)
-            || (x3 <= x2 && x2 <= x4)
+        // (x1 <= x3 && x3 <= x2)
+        //     || (x1 <= x4 && x4 <= x2)
+        //     || (x3 <= x1 && x1 <= x4)
+        //     || (x3 <= x2 && x2 <= x4)
+        if x4 > x1 && x2 > x3 {
+            return true;
+        }
+
+        return false;
+    }
+
+    pub fn update_buffer(&mut self, id: LayerId) {
+        self.layers.get_mut(&id).unwrap().draw_to_buffer();
     }
 
     pub fn update(&mut self, id: LayerId) {
@@ -589,38 +674,47 @@ impl<'a, T: Painter> LayerManager<'a, T> {
 
         let mut index: usize = 0;
         for (idx, layer_id) in self.layer_stack.iter().enumerate() {
+            let layer = self.layers.get_mut(layer_id).unwrap();
             if *layer_id == id {
                 index = idx;
+                layer.update_prev_info();
+                layer.transfer_buffer_range(self.painter, x, y, width, height);
                 break;
             }
-            let layer = self.layers.get_mut(layer_id).unwrap();
             layer.transfer_buffer_range(self.painter, prev_x, prev_y, prev_width, prev_height);
         }
-        for i in self.layer_stack.iter().skip(index) {
+        for i in self.layer_stack.iter().skip(index + 1) {
             let layer = self.layers.get_mut(i).unwrap();
-            if Self::is_overlapping(x, x + width, layer.x, layer.x + layer.width)
-                && Self::is_overlapping(y, y + height, layer.y, layer.y + layer.height)
-            {
-                layer.draw_to_buffer();
-                layer.transfer_buffer_range(
-                    self.painter,
-                    layer.x,
-                    layer.y,
-                    layer.width,
-                    layer.height,
-                );
-            }
+            layer.transfer_buffer_range(self.painter, layer.x, layer.y, layer.width, layer.height);
         }
         self.painter.flush();
     }
 
-    pub fn draw(&mut self) {
+    pub fn draw_all(&mut self) {
         for i in self.layer_stack.iter() {
             let layer = self.layers.get_mut(i).unwrap();
             layer.draw_to_buffer();
             layer.transfer_buffer_range(self.painter, layer.x, layer.y, layer.width, layer.height);
         }
         self.painter.flush();
+    }
+
+    pub fn get_layer_x(&self, id: LayerId) -> u32 {
+        self.layers.get(&id).unwrap().x
+    }
+
+    pub fn get_layer_y(&self, id: LayerId) -> u32 {
+        self.layers.get(&id).unwrap().y
+    }
+
+    pub fn get_layer_height(&self, id: LayerId) -> usize {
+        for (i, layer_id) in self.layer_stack.iter().enumerate() {
+            if *layer_id == id {
+                return i;
+            }
+        }
+
+        return 0;
     }
 
     pub fn move_layer(&mut self, id: LayerId, mut new_height: i32) {
@@ -654,6 +748,49 @@ impl<'a, T: Painter> LayerManager<'a, T> {
 
     pub fn move_rel(&mut self, id: LayerId, x: i32, y: i32) {
         self.layers.get_mut(&id).unwrap().move_rel(x, y);
+    }
+
+    pub fn move_abs(&mut self, id: LayerId, x: i32, y: i32) {
+        self.layers.get_mut(&id).unwrap().move_abs(x, y);
+    }
+
+    pub fn on_event(&mut self, event: ObjectEvent, event_from: LayerId) {
+        // let x = self.layers.get(&event_from).unwrap().x;
+        // let y = self.layers.get(&event_from).unwrap().y;
+        let mut affect_layer: Option<LayerId> = None;
+        match event {
+            ObjectEvent::MouseLeftPress(x, y) => {
+                self.event_info.pressed_x = x;
+                self.event_info.pressed_y = y;
+                for (_i, layer_id) in self.layer_stack.iter().enumerate() {
+                    let layer = self.layers.get_mut(layer_id).unwrap();
+                    if layer.id == event_from {
+                        break;
+                    }
+                    if Self::is_overlapping(x, x, layer.x, layer.x + layer.width)
+                        && Self::is_overlapping(y, y, layer.y, layer.y + layer.height)
+                    {
+                        affect_layer = Some(layer.id);
+                    }
+                }
+                if let Some(layer_id) = affect_layer {
+                    self.event_info.pressed_id = layer_id;
+                }
+            }
+            ObjectEvent::MouseLeftRelease(_x, _y) => {
+                affect_layer = Some(self.event_info.pressed_id);
+            }
+        }
+
+        if let Some(layer_id) = affect_layer {
+            let layer = self.layers.get_mut(&layer_id).unwrap();
+
+            let arena = unsafe { object_arena() };
+            arena
+                .get_mut(layer.object)
+                .unwrap()
+                .on_event(event, layer.id);
+        }
     }
 }
 
@@ -698,12 +835,8 @@ impl WindowManager {
 
         let lm = unsafe { layer_manager() };
         lm.move_layer(*layer_id, 1);
+        lm.update_buffer(*layer_id);
         lm.update(*layer_id);
-        // let window = if let Some(window) = object.as_mut_any().downcast_mut::<Window>() {
-        //     window
-        // } else {
-        //     panic!("id {} is not a window", id);
-        // };
     }
 }
 
@@ -759,10 +892,12 @@ pub fn init() {
             .set_transparent_color(mouse_transparent_color);
         lm.move_layer(MOUSE_LAYER_ID, i32::max_value());
         lm.move_layer(DESKTOP_LAYER_ID, 0);
-        lm.draw();
+        lm.draw_all();
     }
 
     let wm = unsafe { window_manager() };
     let window_id = wm.create_window("Hello", 100, 100, 300, 300);
+    wm.show_window(window_id);
+    let window_id = wm.create_window("Goodbye", 200, 200, 400, 200);
     wm.show_window(window_id);
 }

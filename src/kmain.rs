@@ -32,6 +32,17 @@ pub unsafe fn kproc() {
                         lm.move_rel(MOUSE_LAYER_ID, 0, ev.value as i32);
                     }
                 }
+                EventType::EV_KEY => {
+                    if ev.code == EV_KEY::BTN_LEFT as u16 && ev.value == 1 {
+                        let x = lm.get_layer_x(MOUSE_LAYER_ID);
+                        let y = lm.get_layer_y(MOUSE_LAYER_ID);
+                        lm.on_event(ObjectEvent::MouseLeftPress(x, y), MOUSE_LAYER_ID);
+                    } else if ev.code == EV_KEY::BTN_LEFT as u16 && ev.value == 0 {
+                        let x = lm.get_layer_x(MOUSE_LAYER_ID);
+                        let y = lm.get_layer_y(MOUSE_LAYER_ID);
+                        lm.on_event(ObjectEvent::MouseLeftRelease(x, y), MOUSE_LAYER_ID);
+                    }
+                }
                 EventType::EV_SYN => {
                     lm.update(MOUSE_LAYER_ID);
                 }
@@ -65,7 +76,7 @@ pub extern "C" fn kmain() {
     pm.ready(pid);
 
     // start preemption
-    //interrupt::timer_interrupt_on();
+    // interrupt::timer_interrupt_on();
     interrupt::interrupt_on();
 
     pm.schedule();
