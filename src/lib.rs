@@ -16,6 +16,7 @@ extern crate alloc;
 extern crate array_init;
 extern crate embedded_graphics;
 extern crate fontdue;
+extern crate hashbrown;
 extern crate intrusive_collections;
 extern crate libm;
 extern crate tiny_skia;

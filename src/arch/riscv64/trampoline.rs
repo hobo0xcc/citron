@@ -108,4 +108,5 @@ global_asm!(
     "killme:",
     "  li a0, 62",
     "  ecall",
+    ".section .text"
 );

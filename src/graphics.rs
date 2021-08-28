@@ -10,6 +10,7 @@ use alloc::{
 };
 use core::alloc::Layout;
 use core::any::Any;
+use core::cmp::{max, min};
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::image::Image;
 use embedded_graphics::mono_font::{ascii::*, MonoTextStyleBuilder};
@@ -96,7 +97,7 @@ impl ObjectArena {
 
 pub trait Painter {
     fn draw_at(&mut self, x: u32, y: u32, pixel: u32);
-    fn copy_buf(&mut self, src: *mut u32, size: usize);
+    fn copy_buf(&mut self, src: *mut u32, src_offset: usize, dst_offset: usize, size: usize);
     fn flush(&mut self);
     fn get_width(&self) -> u32;
     fn get_height(&self) -> u32;
@@ -349,9 +350,9 @@ impl Painter for FrameBuffer {
         }
     }
 
-    fn copy_buf(&mut self, src: *mut u32, size: usize) {
+    fn copy_buf(&mut self, src: *mut u32, src_offset: usize, dst_offset: usize, size: usize) {
         unsafe {
-            core::ptr::copy_nonoverlapping(src, self.buffer, size);
+            core::ptr::copy(src.add(src_offset), (self.buffer).add(dst_offset), size);
         }
     }
 
@@ -529,19 +530,14 @@ impl Layer {
         width: u32,
         height: u32,
     ) {
+        let x_start = max(x, self.x);
+        let x_end = min(x + width, min(self.x + self.width, painter.get_width()));
+        let y_start = max(y, self.y);
+        let y_end = min(y + height, min(self.y + self.height, painter.get_height()));
+
         if let Some(transparent) = self.transparent {
-            for x in x..(x + width) {
-                for y in y..(y + height) {
-                    if x < self.x
-                        || x >= (self.x + self.width)
-                        || y < self.y
-                        || y >= (self.y + self.height)
-                    {
-                        continue;
-                    }
-                    if x >= painter.get_width() || y >= painter.get_height() {
-                        continue;
-                    }
+            for y in y_start..y_end {
+                for x in x_start..x_end {
                     let pixel = self.buffer.get_pixel(x - self.x, y - self.y);
                     if pixel == transparent {
                         continue;
@@ -550,18 +546,16 @@ impl Layer {
                 }
             }
         } else {
-            for x in x..(x + width) {
-                for y in y..(y + height) {
-                    if x < self.x
-                        || x >= (self.x + self.width)
-                        || y < self.y
-                        || y >= (self.y + self.height)
-                    {
-                        continue;
-                    }
-                    if x >= painter.get_width() || y >= painter.get_height() {
-                        continue;
-                    }
+            // for y in y_start..y_end {
+            //     painter.copy_buf(
+            //         self.buffer.buffer,
+            //         ((y - self.y) * self.width + (x_start - self.x)) as usize,
+            //         (y * painter.get_width() + x_start) as usize,
+            //         (x_end - x_start) as usize,
+            //     );
+            // }
+            for y in y_start..y_end {
+                for x in x_start..x_end {
                     painter.draw_at(x, y, self.buffer.get_pixel(x - self.x, y - self.y));
                 }
             }
@@ -795,7 +789,7 @@ impl<'a, T: Painter> LayerManager<'a, T> {
 }
 
 pub struct WindowManager {
-    map: BTreeMap<ObjectId, usize>,
+    map: BTreeMap<ObjectId, LayerId>,
 }
 
 impl WindowManager {
@@ -837,6 +831,23 @@ impl WindowManager {
         lm.move_layer(*layer_id, 1);
         lm.update_buffer(*layer_id);
         lm.update(*layer_id);
+    }
+
+    pub fn get_highest_window_layer(&self) -> Option<LayerId> {
+        let lm = unsafe { layer_manager() };
+        for layer_id in lm.layer_stack.iter().rev() {
+            if let Some(_) = lm
+                .layers
+                .get(layer_id)
+                .unwrap()
+                .as_any()
+                .downcast_ref::<Window>()
+            {
+                return Some(*layer_id);
+            }
+        }
+
+        return None;
     }
 }
 

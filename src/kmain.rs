@@ -5,9 +5,12 @@ use crate::arch::target::interrupt;
 use crate::arch::target::virtio::virtio_input::*;
 use crate::graphics::layer_manager;
 use crate::graphics::*;
+use crate::process::process_manager;
+use crate::process::ProcessEvent;
 use crate::*;
 
-pub unsafe fn kproc() {
+pub unsafe extern "C" fn kproc() {
+    let pm = process_manager();
     let gpu = gpu_device();
     gpu.init_display();
     let mouse = mouse_device();
@@ -18,11 +21,13 @@ pub unsafe fn kproc() {
     let lm = layer_manager();
 
     loop {
-        if mouse.event_queue.is_empty() {
+        let queue = &mut mouse.event_queue; //mouse_event_queue();
+        if queue.is_empty() {
+            pm.event_wait(pm.running, ProcessEvent::MouseEvent);
             continue;
         }
 
-        let mut event = mouse.event_queue.pop_front();
+        let mut event = queue.pop_front();
         while let Some(ev) = event {
             match EventType::from(ev.type_) {
                 EventType::EV_REL => {
@@ -48,7 +53,7 @@ pub unsafe fn kproc() {
                 }
                 _ => {}
             }
-            event = mouse.event_queue.pop_front();
+            event = queue.pop_front();
         }
     }
 }
@@ -76,7 +81,7 @@ pub extern "C" fn kmain() {
     pm.ready(pid);
 
     // start preemption
-    // interrupt::timer_interrupt_on();
+    interrupt::timer_interrupt_on();
     interrupt::interrupt_on();
 
     pm.schedule();

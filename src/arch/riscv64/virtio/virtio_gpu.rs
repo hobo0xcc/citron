@@ -1,6 +1,5 @@
 use crate::arch::riscv64::interrupt::interrupt_disable;
 use crate::arch::riscv64::interrupt::interrupt_restore;
-use crate::arch::riscv64::interrupt::is_interrupt_enable;
 use crate::process::process_manager;
 use alloc::alloc::{alloc, alloc_zeroed, dealloc};
 use alloc::vec::Vec;
@@ -460,9 +459,6 @@ impl VirtioGpu {
             self.desc_indexes = Some(desc_indexes);
             pm.io_wait(self.pid);
             self.write_reg32(VirtioReg::QueueNotify.val(), queue as u32);
-            if !is_interrupt_enable() {
-                println!("interrupt isn't enabled!");
-            }
             pm.schedule();
         }
     }

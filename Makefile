@@ -5,8 +5,8 @@ all: $(BIN)
 
 .PHONY: $(BIN)
 $(BIN):
-	cargo build
-	cp target/riscv64-citron/debug/citron $@
+	cargo build --release
+	cp target/riscv64-citron/release/citron $@
 
 # $(DISK):
 # 	qemu-img create -f raw $@ 256M

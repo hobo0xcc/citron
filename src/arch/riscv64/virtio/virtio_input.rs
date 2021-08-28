@@ -2,6 +2,7 @@ use super::super::virtio;
 use super::*;
 use crate::arch::riscv64::interrupt::*;
 use crate::process::process_manager;
+use crate::process::ProcessEvent;
 use alloc::alloc::{alloc, alloc_zeroed, Layout};
 use alloc::collections::VecDeque;
 use alloc::string::String;
@@ -715,7 +716,7 @@ pub struct VirtioInput {
     event_index: u16,
     status_ack_used_index: u16,
     pub event_queue: VecDeque<VirtioInputEvent>,
-    sid: usize,
+    pub sid: usize,
     pid: usize,
 }
 
@@ -950,7 +951,7 @@ impl VirtioInput {
     }
 
     pub fn init_input_event(&mut self) {
-        self.setup_config();
+        // self.setup_config();
 
         let pm = unsafe { process_manager() };
         pm.wait_semaphore(self.sid);
@@ -966,7 +967,6 @@ impl VirtioInput {
     }
 
     pub fn pending(&mut self) {
-        // println!("virtio_input pending start");
         let mask = interrupt_disable();
 
         let interrupt_status = self.read_reg32(VirtioReg::InterruptStatus.val());
@@ -986,15 +986,16 @@ impl VirtioInput {
                 let desc = desc.add(elem.id as usize).as_mut().unwrap();
                 let event = (desc.addr as *mut VirtioInputEvent).as_mut().unwrap();
                 self.event_queue.push_back(*event);
-                // println!("{:?}", event);
             }
         }
 
         let pm = unsafe { process_manager() };
-        pm.io_signal(self.pid);
+        match self.device_type {
+            DeviceType::Mouse => pm.event_signal(ProcessEvent::MouseEvent),
+            DeviceType::Keyboard => pm.event_signal(ProcessEvent::KeyboardEvent),
+        }
 
         interrupt_restore(mask);
-        // println!("virtio_input pending end");
     }
 }
 

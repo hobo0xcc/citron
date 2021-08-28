@@ -11,9 +11,13 @@ impl Painter for VirtioGpu {
         }
     }
 
-    fn copy_buf(&mut self, src: *mut u32, size: usize) {
+    fn copy_buf(&mut self, src: *mut u32, src_offset: usize, dst_offset: usize, size: usize) {
         unsafe {
-            core::ptr::copy(src, self.framebuffer as *mut u32, size);
+            core::ptr::copy_nonoverlapping(
+                src.add(src_offset),
+                (self.framebuffer as *mut u32).add(dst_offset),
+                size,
+            );
         }
     }
 

@@ -1,5 +1,4 @@
 use crate::arch::riscv64::interrupt::interrupt_disable;
-use crate::arch::riscv64::interrupt::interrupt_on;
 use crate::arch::riscv64::interrupt::interrupt_restore;
 use crate::arch::target::nullproc;
 use crate::arch::target::process::Context;
@@ -9,14 +8,23 @@ use alloc::alloc::alloc;
 use alloc::boxed::Box;
 use alloc::collections::binary_heap::BinaryHeap;
 use alloc::collections::VecDeque;
+use alloc::vec;
 use alloc::vec::Vec;
 use array_init::array_init;
 use core::alloc::Layout;
 use core::cmp::Ordering;
+use hashbrown::HashMap;
 use intrusive_collections::intrusive_adapter;
 use intrusive_collections::{LinkedList, LinkedListLink};
 
 pub static mut PM: Option<ProcessManager> = None;
+
+#[repr(u32)]
+#[derive(Copy, Clone, PartialEq, Debug, Hash, Eq)]
+pub enum ProcessEvent {
+    MouseEvent = 0,
+    KeyboardEvent = 1,
+}
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum State {
@@ -26,6 +34,7 @@ pub enum State {
     Sleep,
     SemaWait,
     IOWait,
+    EventWait(ProcessEvent),
     Free,
 }
 
@@ -158,6 +167,7 @@ pub struct ProcessManager {
     pub stable: [Semaphore; STABLE_SIZE],
     pub pqueue: BinaryHeap<ProcessDesc>, // Ready list
     sleep_queue: LinkedList<ProcessDelayAdapter>,
+    event_queue: HashMap<ProcessEvent, Vec<usize>>,
     defer: DeferScheduler,
     pub curr_pid: usize,
     pub running: usize,
@@ -173,6 +183,7 @@ impl ProcessManager {
             stable,
             pqueue: BinaryHeap::new(),
             sleep_queue: LinkedList::new(ProcessDelayAdapter::new()),
+            event_queue: HashMap::new(),
             defer: DeferScheduler::new(),
             curr_pid: 0,
             running: 0,
@@ -212,19 +223,13 @@ impl ProcessManager {
         let pid = self.running;
         let sema = &mut self.stable[sid];
         sema.count -= 1;
-        let mut do_sched = false;
         if sema.count < 0 {
             self.ptable[pid].state = State::SemaWait;
             sema.queue.push_back(pid);
-            do_sched = true;
-            // self.schedule();
+            self.schedule();
         }
 
         interrupt_restore(mask);
-
-        if do_sched {
-            self.schedule();
-        }
     }
 
     pub fn signal_semaphore(&mut self, sid: usize) {
@@ -232,9 +237,11 @@ impl ProcessManager {
 
         if self.stable[sid].count < 0 {
             let pid = self.stable[sid].queue.pop_front().unwrap();
+            self.stable[sid].count += 1;
             self.ready(pid);
+        } else {
+            self.stable[sid].count += 1;
         }
-        self.stable[sid].count += 1;
 
         interrupt_restore(mask);
     }
@@ -253,6 +260,8 @@ impl ProcessManager {
         }
 
         self.defer_schedule(DeferCommand::Stop);
+
+        self.schedule();
 
         interrupt_restore(mask);
     }
@@ -289,8 +298,11 @@ impl ProcessManager {
     }
 
     pub fn schedule(&mut self) {
+        let mask = interrupt_disable();
+
         if self.defer.count > 0 {
             self.defer.attempt = true;
+            interrupt_restore(mask);
             return;
         }
 
@@ -298,6 +310,7 @@ impl ProcessManager {
         let pdesc = if let Some(desc) = proc {
             desc
         } else {
+            interrupt_restore(mask);
             return;
         };
 
@@ -316,6 +329,7 @@ impl ProcessManager {
         } else {
             if self.ptable[self.running].state == State::Running {
                 self.pqueue.push(ProcessDesc::new(new_priority, new_pid));
+                interrupt_restore(mask);
                 return;
             }
         }
@@ -325,17 +339,24 @@ impl ProcessManager {
 
         // println!("interrupt: {}", is_interrupt_enable());
 
-        interrupt_on();
+        // println!("switch: {} -> {}", old_pid, new_pid);
+        // let mut sp: usize = 0;
+        // unsafe {
+        //     asm!("mv {}, sp", out(reg)sp);
+        // }
+        // println!("sp: {:#018x}", sp);
 
         unsafe {
             context_switch(old_context as usize, new_context as usize);
         }
+        interrupt_restore(mask);
     }
 
     pub fn ready(&mut self, pid: usize) {
         self.ptable[pid].state = State::Ready;
         let priority = self.ptable[pid].priority;
         self.pqueue.push(ProcessDesc::new(priority, pid));
+        self.schedule();
     }
 
     pub fn setup_kernel_process(&mut self, pid: usize, func: usize) {
@@ -439,11 +460,15 @@ impl ProcessManager {
             }
             drop(cursor);
 
+            self.defer_schedule(DeferCommand::Start);
             for pid in pids.into_iter() {
                 if self.ptable[pid].state == State::Sleep {
                     self.ready(pid);
                 }
             }
+            self.defer_schedule(DeferCommand::Stop);
+
+            self.schedule();
         }
 
         interrupt_restore(mask);
@@ -474,9 +499,9 @@ impl ProcessManager {
                 insert_node.replace_with(Box::new(ProcessDelay::new(pid, delay - relative_delay)));
         }
 
-        interrupt_restore(mask);
-
         self.schedule();
+
+        interrupt_restore(mask);
     }
 
     pub fn kill(&mut self, pid: usize) {
@@ -508,6 +533,42 @@ impl ProcessManager {
         let mask = interrupt_disable();
 
         self.ready(pid);
+
+        interrupt_restore(mask);
+    }
+
+    pub fn event_wait(&mut self, pid: usize, event: ProcessEvent) {
+        let mask = interrupt_disable();
+
+        self.ptable[pid].state = State::EventWait(event);
+        self.event_queue
+            .entry(event)
+            .or_insert_with(|| vec![])
+            .push(pid);
+
+        self.schedule();
+
+        interrupt_restore(mask);
+    }
+
+    pub fn event_signal(&mut self, event: ProcessEvent) {
+        let mask = interrupt_disable();
+
+        self.defer_schedule(DeferCommand::Start);
+        let events = self.event_queue.remove(&event);
+        let events = if let Some(events) = events {
+            events
+        } else {
+            self.defer_schedule(DeferCommand::Stop);
+            interrupt_restore(mask);
+            return;
+        };
+        for pid in events.iter() {
+            self.ready(*pid);
+        }
+        self.defer_schedule(DeferCommand::Stop);
+
+        self.schedule();
 
         interrupt_restore(mask);
     }
