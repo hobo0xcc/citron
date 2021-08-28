@@ -77,7 +77,7 @@ pub extern "C" fn kmain() {
 
     let pm = unsafe { process::process_manager() };
 
-    let pid = pm.create_kernel_process("kproc", 1, kproc as usize);
+    let pid = pm.create_kernel_process("kproc", 2, kproc as usize);
     pm.ready(pid);
 
     // start preemption

@@ -19,6 +19,7 @@ extern crate fontdue;
 extern crate hashbrown;
 extern crate intrusive_collections;
 extern crate libm;
+extern crate linked_list_allocator;
 extern crate tiny_skia;
 extern crate tinybmp;
 extern crate volatile_register;
