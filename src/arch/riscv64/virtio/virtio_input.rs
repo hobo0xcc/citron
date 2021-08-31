@@ -985,6 +985,7 @@ impl VirtioInput {
             unsafe {
                 let desc = desc.add(elem.id as usize).as_mut().unwrap();
                 let event = (desc.addr as *mut VirtioInputEvent).as_mut().unwrap();
+                // println!("event: {:?}", event);
                 self.event_queue.push_back(*event);
             }
         }

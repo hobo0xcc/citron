@@ -1,12 +1,12 @@
 pub mod boot;
 pub mod clint;
 pub mod csr;
-pub mod fs;
 pub mod fw_cfg;
 pub mod graphics;
 pub mod init;
 pub mod interrupt;
 pub mod layout;
+pub mod loader;
 pub mod nullproc;
 pub mod paging;
 pub mod plic;

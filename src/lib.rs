@@ -16,6 +16,7 @@ extern crate alloc;
 extern crate array_init;
 extern crate embedded_graphics;
 extern crate fontdue;
+extern crate goblin;
 extern crate hashbrown;
 extern crate intrusive_collections;
 extern crate libm;
@@ -27,6 +28,7 @@ extern crate volatile_register;
 
 pub mod allocator;
 pub mod arch;
+pub mod fs;
 pub mod graphics;
 pub mod init;
 pub mod kmain;

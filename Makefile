@@ -1,5 +1,6 @@
 BIN=kernel.elf
-DISK=kernel.elf
+DISK=disk.img
+MOUNT=mnt
 
 all: $(BIN)
 
@@ -8,9 +9,22 @@ $(BIN):
 	cargo build --release
 	cp target/riscv64-citron/release/citron $@
 
-# $(DISK):
-# 	qemu-img create -f raw $@ 256M
-# 	mkfs.fat -n 'DISK' -F 32 $@
+$(DISK):
+	qemu-img create -f raw $@ 256M
+	mkfs.fat -n 'DISK' -F 32 $@
+ifeq ($(shell uname),Darwin)
+	hdiutil attach -mountpoint $(MOUNT) $(DISK)
+else
+	mount -o loop $(DISK) $(MOUNT)
+endif
+	cp -r resources mnt/
+	make -C bin
+	cp -r bin mnt/
+ifeq ($(shell uname),Darwin)
+	hdiutil detach $(MOUNT)
+else
+	umount $(MOUNT)
+endif
 
 qemu: $(BIN) $(DISK)
 	qemu-system-riscv64 -machine virt \
@@ -36,5 +50,6 @@ qemu-gdb: $(BIN) $(DISK)
 	-gdb tcp::1234 -S
 
 clean:
+	make -C bin clean
 	cargo clean
 	rm -rf $(BIN) $(DISK)

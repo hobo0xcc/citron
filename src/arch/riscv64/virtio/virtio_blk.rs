@@ -1,6 +1,6 @@
-use super::super::fs;
 use super::super::virtio;
 use super::super::virtio::*;
+use crate::fs;
 use crate::process::process_manager;
 use alloc::alloc::dealloc;
 use alloc::alloc::{alloc, alloc_zeroed};
@@ -44,6 +44,7 @@ impl RequestType {
     }
 }
 
+#[repr(C, packed)]
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
 pub struct VirtioBlkRequest {
@@ -299,6 +300,7 @@ impl VirtioBlk {
             let index = self.ack_used_index % VIRTIO_RING_SIZE as u16;
             let elem = used.ring[index as usize];
             if self.status[elem.id as usize] != 0 {
+                println!("{}", self.status[elem.id as usize]);
                 panic!("virtio_blk operation failed");
             }
 
@@ -330,6 +332,10 @@ impl fs::Disk for VirtioBlk {
 
     fn write_sector(&mut self, sector: usize, buffer: &mut [u8]) {
         self.block_op(buffer.as_mut_ptr(), 512, sector, true);
+    }
+
+    fn sector_size(&self) -> usize {
+        512
     }
 }
 

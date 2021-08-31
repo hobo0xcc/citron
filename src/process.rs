@@ -1,6 +1,5 @@
 use crate::arch::riscv64::interrupt::interrupt_disable;
 use crate::arch::riscv64::interrupt::interrupt_restore;
-use crate::arch::target::nullproc;
 use crate::arch::target::process::Context;
 use crate::arch::target::process::{context_switch, ArchProcess};
 use crate::*;
@@ -40,7 +39,7 @@ pub enum State {
 
 pub const KERNEL_STACK_SIZE: usize = 0x10000;
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 #[allow(dead_code)]
 pub struct Process {
     pub state: State,
@@ -190,13 +189,13 @@ impl ProcessManager {
         }
     }
 
-    pub fn load_program(&mut self, pid: usize, prog: usize, size: usize) {
-        self.ptable[pid].arch_proc.init_program(prog, size);
+    pub fn load_program(&mut self, pid: usize, path: &str) {
+        self.ptable[pid].arch_proc.init_program(path);
     }
 
     pub fn init(&mut self) {
         let pid = self.create_process("null", 0, true);
-        self.load_program(pid, nullproc::null_proc as usize, 0x1000);
+        // self.load_program(pid, nullproc::null_proc as usize, 0x1000);
         self.ptable[pid].state = State::Running;
         self.running = pid;
     }
@@ -382,8 +381,12 @@ impl ProcessManager {
     }
 
     pub fn create_kernel_process(&mut self, name: &str, priority: usize, func: usize) -> usize {
+        // let mask = interrupt_disable();
+
         let pid = self.create_process(name, priority, false);
         self.setup_kernel_process(pid, func);
+
+        // interrupt_restore(mask);
 
         pid
     }

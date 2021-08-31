@@ -3,6 +3,7 @@ use crate::*;
 
 use super::csr::Csr;
 use super::interrupt;
+use super::loader::*;
 use super::paging;
 use super::plic;
 use super::syscall;
@@ -126,6 +127,7 @@ pub struct Context {
     pub s10: usize,
     pub s11: usize,
     pub a0: usize,
+    pub sstatus: usize,
 }
 
 impl Default for Context {
@@ -146,11 +148,12 @@ impl Default for Context {
             s10: 0,
             s11: 0,
             a0: 0,
+            sstatus: 0,
         }
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 #[allow(dead_code)]
 pub struct ArchProcess {
     pub page_table: NonNull<paging::Table>,
@@ -160,6 +163,7 @@ pub struct ArchProcess {
     pub kernel_stack_size: usize,
     pub user_stack: usize,
     pub user_stack_size: usize,
+    pub exec_info: ExecutableInfo,
     pub pid: usize,
 }
 
@@ -184,6 +188,8 @@ global_asm!(
     "sd s9, 88(a0)",
     "sd s10, 96(a0)",
     "sd s11, 104(a0)",
+    "csrr t0, sstatus",
+    "sd t0, 120(a0)",
     "ld ra,  0(a1)",
     "ld sp,  8(a1)",
     "ld s0,  16(a1)",
@@ -200,6 +206,8 @@ global_asm!(
     "ld s11, 104(a1)",
     // for first argument of user_trap_return
     "ld a0, 112(a1)",
+    "ld t0, 120(a1)",
+    "csrw sstatus, t0",
     "ret"
 );
 
@@ -216,6 +224,7 @@ impl ArchProcess {
             kernel_stack_size: 0,
             user_stack: 0,
             user_stack_size: 0,
+            exec_info: ExecutableInfo::new(),
             pid,
         }
     }
@@ -231,26 +240,38 @@ impl ArchProcess {
             dealloc(self.kernel_stack as *mut u8, kernel_stack_layout);
             dealloc(self.page_table.as_ptr() as *mut u8, page_table_layout);
             dealloc(self.trap_frame as *mut u8, trap_frame_layout);
+
+            for (ptr, layout) in self.exec_info.segment_buffers.iter() {
+                dealloc(*ptr, *layout);
+            }
         }
     }
 
-    pub fn init_program(&mut self, prog: usize, size: usize) {
-        let mut mapped_size: usize = 0;
-        while mapped_size < size {
-            unsafe {
-                paging::map(
-                    self.page_table.as_mut(),
-                    PROC_START + mapped_size,
-                    prog + mapped_size,
-                    paging::EntryBits::R.val()
-                        | paging::EntryBits::X.val()
-                        | paging::EntryBits::U.val(),
-                    0,
-                );
-            }
+    pub fn init_program(&mut self, path: &str) {
+        let exec_info = unsafe { load_exe(path, self.page_table.as_mut()).unwrap() };
 
-            mapped_size += 0x1000;
+        self.exec_info = exec_info;
+
+        unsafe {
+            (*self.trap_frame).epc = self.exec_info.entry;
         }
+
+        // let mut mapped_size: usize = 0;
+        // while mapped_size < size {
+        //     unsafe {
+        //         paging::map(
+        //             self.page_table.as_mut(),
+        //             PROC_START + mapped_size,
+        //             prog + mapped_size,
+        //             paging::EntryBits::R.val()
+        //                 | paging::EntryBits::X.val()
+        //                 | paging::EntryBits::U.val(),
+        //             0,
+        //         );
+        //     }
+
+        //     mapped_size += 0x1000;
+        // }
     }
 
     pub fn init(&mut self, start: usize, kernel_stack: usize, kernel_stack_size: usize) {
@@ -260,7 +281,7 @@ impl ArchProcess {
         self.init_context(start, kernel_stack + kernel_stack_size);
 
         unsafe {
-            (*self.trap_frame).epc = PROC_START;
+            // (*self.trap_frame).epc = PROC_START;
             (*self.trap_frame).sp = USER_STACK_START;
             (*self.trap_frame).ra = trampoline::KILLME;
         }
@@ -420,5 +441,6 @@ impl ArchProcess {
         self.context.ra = start;
         self.context.sp = stack;
         self.context.a0 = self as *mut ArchProcess as usize;
+        self.context.sstatus = Csr::Sstatus.read();
     }
 }

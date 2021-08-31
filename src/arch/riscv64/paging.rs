@@ -318,6 +318,17 @@ fn align_val(val: usize, align: usize) -> usize {
     (val + t) & !t
 }
 
+pub fn map_range(root: &mut Table, vaddr: usize, paddr: usize, size: usize, bits: usize) {
+    let mut memaddr = paddr & !(PAGE_SIZE - 1);
+    let mut memaddr_v = vaddr & !(PAGE_SIZE - 1);
+    let num_kb_pages = (align_val(memaddr + size, 12) - memaddr) / PAGE_SIZE;
+    for _ in 0..num_kb_pages {
+        map(root, memaddr_v, memaddr, bits, 0);
+        memaddr += PAGE_SIZE;
+        memaddr_v += PAGE_SIZE;
+    }
+}
+
 pub fn id_map_range(root: &mut Table, start: usize, end: usize, bits: usize) {
     let mut memaddr = start & !(PAGE_SIZE - 1);
     let num_kb_pages = (align_val(end, 12) - memaddr) / PAGE_SIZE;

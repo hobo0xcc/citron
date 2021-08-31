@@ -5,8 +5,7 @@ use crate::arch::target::interrupt;
 use crate::arch::target::virtio::virtio_input::*;
 use crate::graphics::layer_manager;
 use crate::graphics::*;
-use crate::process::process_manager;
-use crate::process::ProcessEvent;
+use crate::process::*;
 use crate::*;
 
 pub unsafe extern "C" fn kproc() {
@@ -58,6 +57,16 @@ pub unsafe extern "C" fn kproc() {
     }
 }
 
+pub unsafe extern "C" fn fs_proc() {
+    let pm = process_manager();
+    let pid = pm.create_process("user", 1, true);
+    pm.load_program(pid, "/bin/main");
+    pm.ready(pid);
+    pm.schedule();
+
+    loop {}
+}
+
 #[no_mangle]
 pub extern "C" fn kmain() {
     let mut hart_id: usize;
@@ -77,14 +86,21 @@ pub extern "C" fn kmain() {
 
     let pm = unsafe { process::process_manager() };
 
+    // start preemption
+    interrupt::interrupt_on();
+
+    pm.defer_schedule(DeferCommand::Start);
+
+    let pid = pm.create_kernel_process("fs", 1, fs_proc as usize);
+    pm.ready(pid);
+
     let pid = pm.create_kernel_process("kproc", 2, kproc as usize);
     pm.ready(pid);
 
-    // start preemption
-    interrupt::timer_interrupt_on();
-    interrupt::interrupt_on();
+    pm.defer_schedule(DeferCommand::Stop);
 
-    pm.schedule();
+    interrupt::timer_interrupt_on();
+
     loop {
         pm.schedule();
     }
