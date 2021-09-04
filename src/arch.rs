@@ -19,6 +19,7 @@ pub mod target {
     pub use super::riscv64::serial;
     pub use super::riscv64::start;
     pub use super::riscv64::syscall;
+    pub use super::riscv64::trampoline;
     pub use super::riscv64::trap;
     pub use super::riscv64::virtio;
 }

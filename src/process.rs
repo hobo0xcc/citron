@@ -1,9 +1,13 @@
-use crate::arch::riscv64::interrupt::interrupt_disable;
-use crate::arch::riscv64::interrupt::interrupt_restore;
-use crate::arch::target::process::Context;
-use crate::arch::target::process::{context_switch, ArchProcess};
+use crate::arch::riscv64::trampoline;
+use crate::arch::target::interrupt::interrupt_disable;
+use crate::arch::target::interrupt::interrupt_restore;
+use crate::arch::target::loader::ExecutableInfo;
+use crate::arch::target::loader::*;
+use crate::arch::target::paging::*;
+use crate::arch::target::process::*;
 use crate::*;
 use alloc::alloc::alloc;
+use alloc::alloc::alloc_zeroed;
 use alloc::boxed::Box;
 use alloc::collections::binary_heap::BinaryHeap;
 use alloc::collections::VecDeque;
@@ -12,17 +16,18 @@ use alloc::vec::Vec;
 use array_init::array_init;
 use core::alloc::Layout;
 use core::cmp::Ordering;
+use core::ptr::NonNull;
 use hashbrown::HashMap;
 use intrusive_collections::intrusive_adapter;
 use intrusive_collections::{LinkedList, LinkedListLink};
 
 pub static mut PM: Option<ProcessManager> = None;
 
-#[repr(u32)]
 #[derive(Copy, Clone, PartialEq, Debug, Hash, Eq)]
 pub enum ProcessEvent {
-    MouseEvent = 0,
-    KeyboardEvent = 1,
+    MouseEvent,
+    KeyboardEvent,
+    Exit(usize),
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -338,7 +343,10 @@ impl ProcessManager {
 
         // println!("interrupt: {}", is_interrupt_enable());
 
-        // println!("switch: {} -> {}", old_pid, new_pid);
+        // println!("[hobo0xcc] switch: {} -> {}", old_pid, new_pid);
+        // unsafe {
+        //     println!("[hobo0xcc] context.ra: {:#018x}", (*new_context).ra);
+        // }
         // let mut sp: usize = 0;
         // unsafe {
         //     asm!("mv {}, sp", out(reg)sp);
@@ -519,9 +527,9 @@ impl ProcessManager {
 
         self.ptable[pid].arch_proc.free();
 
-        interrupt_restore(mask);
-
         self.schedule();
+
+        interrupt_restore(mask);
     }
 
     pub fn io_wait(&mut self, pid: usize) {
@@ -574,6 +582,114 @@ impl ProcessManager {
         self.schedule();
 
         interrupt_restore(mask);
+    }
+
+    pub fn fork(&mut self, pid: usize) -> usize {
+        let mask = interrupt_disable();
+
+        let new_pid = self.curr_pid;
+        self.curr_pid += 1;
+        let mut new_proc = Process::new(new_pid);
+
+        new_proc.pid = new_pid;
+        new_proc.state = State::Suspend;
+
+        let layout = Layout::from_size_align(0x1000, 0x1000).unwrap();
+        let new_trapframe = unsafe { alloc_zeroed(layout) };
+        unsafe {
+            new_trapframe.copy_from_nonoverlapping(
+                self.ptable[pid].arch_proc.trap_frame as *const u8,
+                0x1000,
+            );
+            new_proc.arch_proc.trap_frame = new_trapframe as *mut TrapFrame;
+        }
+
+        let layout =
+            Layout::from_size_align(self.ptable[pid].arch_proc.kernel_stack_size, 0x1000).unwrap();
+        let kernel_stack = unsafe { alloc_zeroed(layout) };
+        unsafe {
+            kernel_stack.copy_from_nonoverlapping(
+                self.ptable[pid].arch_proc.kernel_stack as *const u8,
+                self.ptable[pid].arch_proc.kernel_stack_size,
+            );
+        }
+
+        let layout =
+            Layout::from_size_align(self.ptable[pid].arch_proc.user_stack_size, 0x1000).unwrap();
+        let user_stack = unsafe { alloc_zeroed(layout) };
+        unsafe {
+            user_stack.copy_from_nonoverlapping(
+                self.ptable[pid].arch_proc.user_stack as *const u8,
+                self.ptable[pid].arch_proc.user_stack_size,
+            );
+        }
+
+        unsafe {
+            new_proc.arch_proc.page_table =
+                NonNull::new(self.ptable[pid].arch_proc.page_table.as_mut().clone()).unwrap();
+        }
+
+        new_proc.arch_proc.kernel_stack = kernel_stack as usize;
+        new_proc.arch_proc.init_context(
+            ArchProcess::user_trap_return as usize,
+            self.ptable[pid].arch_proc.kernel_stack + self.ptable[pid].arch_proc.kernel_stack_size,
+        );
+        new_proc.arch_proc.user_stack = user_stack as usize;
+
+        unsafe {
+            map(
+                new_proc.arch_proc.page_table.as_mut(),
+                USER_STACK_START - USER_STACK_SIZE,
+                new_proc.arch_proc.user_stack,
+                EntryBits::R.val() | EntryBits::W.val() | EntryBits::U.val(),
+                0,
+            );
+            map(
+                new_proc.arch_proc.page_table.as_mut(),
+                trampoline::TRAPFRAME,
+                new_proc.arch_proc.trap_frame as usize,
+                EntryBits::R.val() | EntryBits::W.val(),
+                0,
+            );
+        }
+
+        let mut new_exec_info = ExecutableInfo {
+            entry: self.ptable[pid].arch_proc.exec_info.entry,
+            segment_buffers: Vec::new(),
+        };
+        for segment in self.ptable[pid].arch_proc.exec_info.segment_buffers.iter() {
+            let new_layout = segment.layout.clone();
+            let new_segment = unsafe { alloc_zeroed(new_layout) };
+            let vm_range = segment.vm_range.clone();
+            let flags = segment.flags;
+            unsafe {
+                new_segment.copy_from_nonoverlapping(segment.ptr, new_layout.size());
+                map_range(
+                    new_proc.arch_proc.page_table.as_mut(),
+                    vm_range.start,
+                    new_segment as usize,
+                    vm_range.len(),
+                    flags,
+                );
+            }
+
+            new_exec_info.segment_buffers.push(Segment::new(
+                new_segment,
+                new_layout,
+                vm_range,
+                flags,
+            ));
+        }
+
+        new_proc.arch_proc.exec_info = new_exec_info;
+
+        self.ptable[new_pid] = new_proc;
+
+        self.ptable[new_pid].priority = 1;
+
+        interrupt_restore(mask);
+
+        new_pid
     }
 }
 

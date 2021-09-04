@@ -10,14 +10,18 @@ use crate::*;
 
 pub unsafe extern "C" fn kproc() {
     let pm = process_manager();
-    let gpu = gpu_device();
-    gpu.init_display();
+
     let mouse = mouse_device();
-    mouse.init_input_event();
     let keyboard = keyboard_device();
+    let gpu = gpu_device();
+    mouse.init_input_event();
     keyboard.init_input_event();
+    gpu.init_display();
     graphics::init();
+
     let lm = layer_manager();
+
+    // let mouse = mouse_device();
 
     loop {
         let queue = &mut mouse.event_queue; //mouse_event_queue();
@@ -58,11 +62,17 @@ pub unsafe extern "C" fn kproc() {
 }
 
 pub unsafe extern "C" fn fs_proc() {
+    fs::fat::init();
+    fs::init();
     let pm = process_manager();
     let pid = pm.create_process("user", 1, true);
     pm.load_program(pid, "/bin/main");
     pm.ready(pid);
-    pm.schedule();
+    // let pid = pm.create_process("user", 1, true);
+    // pm.load_program(pid, "/bin/main");
+    // pm.ready(pid);
+
+    // pm.kill(pm.running);
 
     loop {}
 }

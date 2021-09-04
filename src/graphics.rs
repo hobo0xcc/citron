@@ -54,8 +54,8 @@ static MOUSE_CURSOR: [&str; 23] = [
     "................",
 ];
 
-type ObjectId = usize;
-type LayerId = usize;
+pub type ObjectId = usize;
+pub type LayerId = usize;
 
 pub struct ObjectArena {
     map: BTreeMap<ObjectId, Box<dyn Object>>,
@@ -159,21 +159,20 @@ pub struct WindowFrame {
 }
 
 pub struct Window {
-    frame: WindowFrame,
+    frame: FrameBuffer,
     title: String,
+    title_bar_height: u32,
 }
 
 impl Window {
     pub fn new(width: u32, height: u32) -> Self {
-        let layout = Layout::from_size_align((width * 4 * height) as usize, 0x1000).unwrap();
-        let buffer = unsafe { alloc_zeroed(layout) };
+        let title_bar_height = 30;
+        let window_frame_width = width;
+        let window_frame_height = height;
         Window {
-            frame: WindowFrame {
-                buffer,
-                width,
-                height,
-            },
+            frame: FrameBuffer::new(window_frame_width, window_frame_height),
             title: String::new(),
+            title_bar_height,
         }
     }
 
@@ -201,7 +200,7 @@ impl Window {
         let color = Rgb888::new(0x80, 0x80, 0x80);
 
         let title_bar_style = PrimitiveStyleBuilder::new().fill_color(color).build();
-        Rectangle::new(Point::new(0, 0), Size::new(width, 30))
+        Rectangle::new(Point::new(0, 0), Size::new(width, self.title_bar_height))
             .into_styled(title_bar_style)
             .draw(buffer)
             .expect("draw");
@@ -217,6 +216,19 @@ impl Window {
 
     pub fn set_title(&mut self, title: &str) {
         self.title = title.to_string();
+    }
+
+    pub fn get_frame(&self) -> FrameBuffer {
+        self.frame
+    }
+
+    pub fn update_frame(&mut self, buffer: &mut FrameBuffer) {
+        for y in 0..self.frame.height {
+            for x in 0..self.frame.width {
+                let pixel = self.frame.get_pixel(x, y);
+                buffer.draw_at(x, y + self.title_bar_height, pixel);
+            }
+        }
     }
 }
 
@@ -336,6 +348,7 @@ pub trait Object: AToAny {
     fn get_height(&self) -> u32;
 }
 
+#[derive(Copy, Clone)]
 pub struct FrameBuffer {
     pub buffer: *mut u32,
     pub width: u32,
@@ -421,7 +434,7 @@ impl FrameBuffer {
 pub struct Layer {
     id: LayerId,
     object: ObjectId,
-    buffer: FrameBuffer,
+    pub buffer: FrameBuffer,
     x: u32,
     y: u32,
     width: u32,
@@ -810,12 +823,13 @@ impl WindowManager {
         let arena = unsafe { object_arena() };
 
         let mut window = Window::new(width, height);
+        let title_bar_height = window.title_bar_height;
         window.set_title(title);
 
         let window_id = arena.alloc(Box::new(window));
 
         let lm = unsafe { layer_manager() };
-        let layer_id = lm.create_layer(window_id, x, y, width, height);
+        let layer_id = lm.create_layer(window_id, x, y, width, height + title_bar_height);
 
         self.map.insert(window_id, layer_id);
 
@@ -830,6 +844,31 @@ impl WindowManager {
         let lm = unsafe { layer_manager() };
         lm.move_layer(*layer_id, 1);
         lm.update_buffer(*layer_id);
+        lm.update(*layer_id);
+    }
+
+    pub fn get_window_frame(&mut self, id: ObjectId) -> FrameBuffer {
+        let arena = unsafe { object_arena() };
+        let window = arena.get(id).unwrap();
+        (&**window)
+            .as_any()
+            .downcast_ref::<Window>()
+            .unwrap()
+            .get_frame()
+    }
+
+    pub fn update_window_frame(&mut self, id: ObjectId) {
+        let arena = unsafe { object_arena() };
+        let window = arena.get_mut(id).unwrap();
+
+        let layer_id = self.map.get(&id).unwrap();
+        let lm = unsafe { layer_manager() };
+        let layer = lm.layers.get_mut(&layer_id).unwrap();
+        (&mut **window)
+            .as_mut_any()
+            .downcast_mut::<Window>()
+            .unwrap()
+            .update_frame(&mut layer.buffer);
         lm.update(*layer_id);
     }
 
@@ -911,4 +950,15 @@ pub fn init() {
     wm.show_window(window_id);
     let window_id = wm.create_window("Goodbye", 200, 200, 400, 200);
     wm.show_window(window_id);
+    let mut frame = wm.get_window_frame(window_id);
+    let style = PrimitiveStyleBuilder::new()
+        .stroke_color(Rgb888::GREEN)
+        .stroke_width(3)
+        .fill_color(Rgb888::WHITE)
+        .build();
+    Rectangle::new(Point::new(20, 20), Size::new(20, 20))
+        .into_styled(style)
+        .draw(&mut frame)
+        .expect("draw");
+    wm.update_window_frame(window_id);
 }

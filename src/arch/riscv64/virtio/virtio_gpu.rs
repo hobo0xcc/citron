@@ -2,6 +2,7 @@ use crate::arch::riscv64::interrupt::interrupt_disable;
 use crate::arch::riscv64::interrupt::interrupt_restore;
 use crate::process::process_manager;
 use alloc::alloc::{alloc, alloc_zeroed, dealloc};
+use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 use core::alloc::Layout;
 use core::mem::size_of;
@@ -785,6 +786,7 @@ impl VirtioGpu {
         }
     }
 
+    #[allow(unaligned_references)]
     pub fn pending(&mut self) {
         // println!("virtio_gpu pending start");
         let mask = interrupt_disable();
@@ -793,14 +795,20 @@ impl VirtioGpu {
         let virtqueue = unsafe { self.virtqueue[self.curr_queue as usize].as_mut() };
         let desc = virtqueue.desc;
         let used = unsafe { virtqueue.used.as_mut().unwrap() };
+        let mut freed_desc = BTreeSet::new();
+
         while self.ack_used_index != used.idx {
             let index = self.ack_used_index % VIRTIO_RING_SIZE as u16;
             let elem = used.ring[index as usize];
 
             self.ack_used_index = self.ack_used_index.wrapping_add(1);
             unsafe {
+                if freed_desc.contains(&elem.id) {
+                    continue;
+                }
+                freed_desc.insert(elem.id);
                 let desc = desc.add(elem.id as usize).as_mut().unwrap();
-                let req_layout = Layout::from_size_align(desc.len as usize, 1).unwrap();
+                let req_layout = Layout::from_size_align(desc.len as usize, 8).unwrap();
                 let req = desc.addr as *mut u8;
                 dealloc(req, req_layout);
             }

@@ -1,6 +1,3 @@
-use crate::process::process_manager;
-use crate::*;
-
 use super::csr::Csr;
 use super::interrupt;
 use super::loader::*;
@@ -10,6 +7,8 @@ use super::syscall;
 use super::trampoline;
 use super::trap;
 use super::virtio;
+use crate::process::process_manager;
+use crate::*;
 use alloc::alloc::alloc;
 use alloc::alloc::alloc_zeroed;
 use alloc::alloc::dealloc;
@@ -108,7 +107,7 @@ impl Default for TrapFrame {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 #[repr(C)]
 #[allow(dead_code)]
 pub struct Context {
@@ -241,8 +240,8 @@ impl ArchProcess {
             dealloc(self.page_table.as_ptr() as *mut u8, page_table_layout);
             dealloc(self.trap_frame as *mut u8, trap_frame_layout);
 
-            for (ptr, layout) in self.exec_info.segment_buffers.iter() {
-                dealloc(*ptr, *layout);
+            for segment in self.exec_info.segment_buffers.iter() {
+                dealloc(segment.ptr, segment.layout);
             }
         }
     }
@@ -255,23 +254,6 @@ impl ArchProcess {
         unsafe {
             (*self.trap_frame).epc = self.exec_info.entry;
         }
-
-        // let mut mapped_size: usize = 0;
-        // while mapped_size < size {
-        //     unsafe {
-        //         paging::map(
-        //             self.page_table.as_mut(),
-        //             PROC_START + mapped_size,
-        //             prog + mapped_size,
-        //             paging::EntryBits::R.val()
-        //                 | paging::EntryBits::X.val()
-        //                 | paging::EntryBits::U.val(),
-        //             0,
-        //         );
-        //     }
-
-        //     mapped_size += 0x1000;
-        // }
     }
 
     pub fn init(&mut self, start: usize, kernel_stack: usize, kernel_stack_size: usize) {

@@ -121,6 +121,7 @@ impl EntryBits {
     }
 }
 
+#[derive(Copy, Clone)]
 #[repr(C)]
 pub struct Entry {
     entry: usize,
@@ -154,6 +155,10 @@ impl Entry {
     pub fn is_branch(&self) -> bool {
         !self.is_leaf()
     }
+
+    pub fn get_flags(&self) -> usize {
+        self.entry & 0x3ff
+    }
 }
 
 #[cfg(target_pointer_width = "32")]
@@ -179,6 +184,34 @@ impl Table {
 impl Table {
     pub fn len() -> usize {
         512
+    }
+}
+
+impl Table {
+    pub fn clone(&self) -> *mut Table {
+        let layout = Layout::from_size_align(PAGE_SIZE, PAGE_SIZE).unwrap();
+        let new_table = unsafe { alloc_zeroed(layout) }.cast::<Table>();
+        for (i, entry) in self.entries.iter().enumerate() {
+            if entry.is_invalid() {
+                continue;
+            }
+            if entry.is_branch() {
+                let mut new_entry = Entry { entry: 0 };
+                let flags = entry.get_flags();
+                unsafe {
+                    let old_table = ((entry.entry & !0x3ff) << 2) as *mut Table;
+                    let table = old_table.as_ref().unwrap().clone();
+                    new_entry.set_entry(((table as usize) >> 2) | flags);
+                    new_table.as_mut().unwrap().entries[i] = new_entry;
+                }
+            } else {
+                unsafe {
+                    new_table.as_mut().unwrap().entries[i] = *entry;
+                }
+            }
+        }
+
+        new_table
     }
 }
 

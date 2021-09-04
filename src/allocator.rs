@@ -1,5 +1,6 @@
 use crate::arch::target::interrupt::*;
 use crate::arch::target::*;
+use crate::*;
 use alloc::alloc::GlobalAlloc;
 use alloc::alloc::Layout;
 use core::ptr::NonNull;
@@ -25,10 +26,22 @@ unsafe impl GlobalAlloc for Allocator {
             .ok()
             .map_or(0 as *mut u8, |allocation| allocation.as_ptr());
         interrupt_restore(mask);
+        // println!(
+        //     "alloc: ptr[{:#018x}] size[{}], align[{}]",
+        //     ptr as usize,
+        //     layout.size(),
+        //     layout.align()
+        // );
         ptr
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // println!(
+        //     "dealloc: ptr[{:#018x}], size[{}], align[{}]",
+        //     ptr as usize,
+        //     layout.size(),
+        //     layout.align(),
+        // );
         let mask = interrupt_disable();
         self.backing
             .lock()

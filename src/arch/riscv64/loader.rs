@@ -5,16 +5,36 @@ use alloc::alloc::alloc_zeroed;
 use alloc::format;
 use alloc::vec::Vec;
 use core::alloc::Layout;
+use core::ops::Range;
 use core::slice;
 use goblin::Object;
 
 type EntryPoint = usize;
 
 #[derive(Clone)]
+pub struct Segment {
+    pub ptr: *mut u8,
+    pub layout: Layout,
+    pub vm_range: Range<usize>,
+    pub flags: usize,
+}
+
+impl Segment {
+    pub fn new(ptr: *mut u8, layout: Layout, vm_range: Range<usize>, flags: usize) -> Self {
+        Segment {
+            ptr,
+            layout,
+            vm_range,
+            flags,
+        }
+    }
+}
+
+#[derive(Clone)]
 #[allow(dead_code)]
 pub struct ExecutableInfo {
     pub entry: EntryPoint,
-    pub segment_buffers: Vec<(*mut u8, Layout)>,
+    pub segment_buffers: Vec<Segment>,
 }
 
 impl ExecutableInfo {
@@ -48,12 +68,14 @@ pub fn load_exe(path: &str, page_table: &mut Table) -> Result<ExecutableInfo, Er
         let vm_range = ph.vm_range();
         let layout = Layout::from_size_align(vm_range.len(), 0x1000).unwrap();
         let buffer = unsafe { alloc_zeroed(layout) };
+        let flags =
+            EntryBits::R.val() | EntryBits::W.val() | EntryBits::X.val() | EntryBits::U.val();
         map_range(
             page_table,
             vm_range.start,
             buffer as usize,
             vm_range.len(),
-            EntryBits::R.val() | EntryBits::W.val() | EntryBits::X.val() | EntryBits::U.val(),
+            flags,
         );
 
         let range = ph.file_range();
@@ -62,7 +84,7 @@ pub fn load_exe(path: &str, page_table: &mut Table) -> Result<ExecutableInfo, Er
                 .copy_from_nonoverlapping(bin_slice[range.start..range.end].as_ptr(), range.len());
         }
 
-        segment_buffers.push((buffer, layout));
+        segment_buffers.push(Segment::new(buffer, layout, vm_range, flags));
     }
 
     // for section in elf.section_headers.iter() {
