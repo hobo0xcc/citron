@@ -38,7 +38,7 @@ pub enum State {
     Sleep,
     SemaWait,
     IOWait,
-    EventWait(ProcessEvent),
+    EventWait,
     Free,
 }
 
@@ -51,6 +51,7 @@ pub struct Process {
     pub arch_proc: ArchProcess,
     pub pid: usize,
     pub priority: usize,
+    children: VecDeque<usize>,
     pub name: [u8; 64],
     pub kernel_stack: usize,
     pub user_stack: usize,
@@ -63,6 +64,7 @@ impl Process {
             arch_proc: ArchProcess::new(pid),
             pid,
             priority: 0,
+            children: VecDeque::new(),
             name: [0; 64],
             kernel_stack: 0,
             user_stack: 0,
@@ -360,6 +362,12 @@ impl ProcessManager {
     }
 
     pub fn ready(&mut self, pid: usize) {
+        if self.ptable[pid].state == State::Free
+            || self.ptable[pid].state == State::Running
+            || self.ptable[pid].state == State::Ready
+        {
+            return;
+        }
         self.ptable[pid].state = State::Ready;
         let priority = self.ptable[pid].priority;
         self.pqueue.push(ProcessDesc::new(priority, pid));
@@ -527,6 +535,8 @@ impl ProcessManager {
 
         self.ptable[pid].arch_proc.free();
 
+        self.event_signal(ProcessEvent::Exit(pid));
+
         self.schedule();
 
         interrupt_restore(mask);
@@ -551,7 +561,7 @@ impl ProcessManager {
     pub fn event_wait(&mut self, pid: usize, event: ProcessEvent) {
         let mask = interrupt_disable();
 
-        self.ptable[pid].state = State::EventWait(event);
+        self.ptable[pid].state = State::EventWait;
         self.event_queue
             .entry(event)
             .or_insert_with(|| vec![])
@@ -584,12 +594,35 @@ impl ProcessManager {
         interrupt_restore(mask);
     }
 
+    pub fn wait_exit(&mut self) {
+        let mask = interrupt_disable();
+
+        for pid in self.ptable[self.running].children.clone() {
+            if self.ptable[pid].state == State::Free {
+                self.ptable[self.running].children.remove(pid);
+                return;
+            }
+        }
+
+        self.defer_schedule(DeferCommand::Start);
+        for pid in self.ptable[self.running].children.clone() {
+            self.event_wait(self.running, ProcessEvent::Exit(pid));
+        }
+        self.defer_schedule(DeferCommand::Stop);
+
+        self.schedule();
+
+        interrupt_restore(mask);
+    }
+
     pub fn fork(&mut self, pid: usize) -> usize {
         let mask = interrupt_disable();
 
         let new_pid = self.curr_pid;
         self.curr_pid += 1;
         let mut new_proc = Process::new(new_pid);
+
+        self.ptable[pid].children.push_back(new_pid);
 
         new_proc.pid = new_pid;
         new_proc.state = State::Suspend;

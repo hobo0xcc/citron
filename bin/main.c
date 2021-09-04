@@ -5,6 +5,7 @@ extern int create_window(char *title, int title_len, int x, int y, int width,
 extern int map_window(int window_id, unsigned long vaddr);
 extern int sync_window(int window_id);
 extern int fork();
+extern int wait_exit();
 
 int main(void) {
   int width = 300;
@@ -23,6 +24,7 @@ int main(void) {
   // write(0, msg, 6);
   int pid = fork();
   if (pid == 0) {
+    wait_exit();
     char *msg = "Hello, world!\n";
     write(0, msg, 14);
   } else {

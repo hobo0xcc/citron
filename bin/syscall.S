@@ -46,3 +46,9 @@ fork:
     li a0, 57
     ecall
     ret
+
+.globl wait_exit
+wait_exit:
+    li a0, 56
+    ecall
+    ret

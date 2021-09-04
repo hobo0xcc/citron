@@ -64,6 +64,12 @@ pub unsafe fn sys_sleep(pm: &mut ProcessManager, delay: usize) -> usize {
     0
 }
 
+pub unsafe fn sys_wait_exit(pm: &mut ProcessManager) -> usize {
+    pm.wait_exit();
+
+    0
+}
+
 pub unsafe fn sys_fork(pm: &mut ProcessManager) -> usize {
     let pid = pm.fork(pm.running);
     let trapframe = pm.ptable[pid].arch_proc.trap_frame;
@@ -150,6 +156,7 @@ pub unsafe fn execute_syscall() -> usize {
             info.get_arg_raw(3),
         ),
         35 => sys_sleep(pm, info.get_arg_raw(1)),
+        56 => sys_wait_exit(pm),
         57 => sys_fork(pm),
         62 => sys_kill(pm),
         1000 => sys_create_window(
