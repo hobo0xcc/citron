@@ -1,9 +1,12 @@
 use super::super::virtio;
 use super::super::virtio::*;
+use crate::arch::riscv64::csr::Csr;
+use crate::arch::target::interrupt::*;
 use crate::fs;
 use crate::process::process_manager;
 use alloc::alloc::dealloc;
 use alloc::alloc::{alloc, alloc_zeroed};
+use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 use core::alloc::Layout;
 use core::mem::size_of;
@@ -277,6 +280,8 @@ impl VirtioBlk {
         );
         self.write_desc(desc_indexes[2] as usize, desc);
 
+        pm.signal_semaphore(self.sid);
+
         unsafe {
             let mut avail = self.virtqueue.as_mut().avail.as_mut().unwrap();
             let index = avail.idx as usize;
@@ -291,11 +296,14 @@ impl VirtioBlk {
         }
     }
 
+    #[allow(unaligned_references)]
     pub fn pending(&mut self) {
         let interrupt_status = self.read_reg32(VirtioReg::InterruptStatus.val());
         self.write_reg32(VirtioReg::InterruptACK.val(), interrupt_status & 0x3);
         let desc = unsafe { self.virtqueue.as_mut().desc };
         let used = unsafe { self.virtqueue.as_mut().used.as_mut().unwrap() };
+        let mut freed_desc = BTreeSet::new();
+
         while self.ack_used_index != used.idx {
             let index = self.ack_used_index % VIRTIO_RING_SIZE as u16;
             let elem = used.ring[index as usize];
@@ -309,6 +317,11 @@ impl VirtioBlk {
                 let desc = desc.add(elem.id as usize).as_mut().unwrap();
                 let req_layout = Layout::from_size_align(desc.len as usize, 1).unwrap();
                 let req = desc.addr as *mut u8;
+                let req_val = req as usize;
+                if freed_desc.contains(&req_val) {
+                    continue;
+                }
+                freed_desc.insert(req_val);
                 dealloc(req, req_layout);
             }
         }

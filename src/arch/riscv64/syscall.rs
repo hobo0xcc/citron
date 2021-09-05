@@ -1,11 +1,13 @@
 use super::paging::*;
 use super::process::TrapFrame;
 use crate::arch::syscall::SysCallInfo;
+use crate::fs::file_system;
 use crate::graphics::*;
 use crate::process::{process_manager, ProcessManager};
 use crate::*;
 use alloc::string::*;
 use core::slice;
+use core::slice::from_raw_parts_mut;
 
 pub struct RiscvSysCallInfo {
     trap_frame: *mut TrapFrame,
@@ -47,6 +49,20 @@ pub unsafe fn syscall_info() -> RiscvSysCallInfo {
     }
 }
 
+pub unsafe fn sys_read(_pm: &mut ProcessManager, fd: usize, buf: *mut u8, count: usize) -> usize {
+    if fd == 0 || fd == 1 || fd == 2 {
+        return 0;
+    }
+
+    let fs = file_system();
+    let res = fs.read(fd, from_raw_parts_mut(buf, count));
+    if let Err(_) = res {
+        return -1_isize as usize;
+    } else {
+        return res.unwrap();
+    }
+}
+
 pub unsafe fn sys_write(_pm: &mut ProcessManager, _fd: usize, buf: *mut u8, count: usize) -> usize {
     // let pagetable = pm.ptable[pm.running].arch_proc.page_table.as_mut();
     // let buf_phys = paging::virt_to_phys(pagetable, buf as usize).unwrap() as *mut u8;
@@ -55,6 +71,37 @@ pub unsafe fn sys_write(_pm: &mut ProcessManager, _fd: usize, buf: *mut u8, coun
     }
 
     0
+}
+
+pub unsafe fn sys_seek(_pm: &mut ProcessManager, fd: usize, offset: usize, whence: u32) -> usize {
+    let fs = file_system();
+    let res = fs.seek(fd, offset as isize, whence);
+    if let Err(_) = res {
+        return -1_isize as usize;
+    } else {
+        return res.unwrap();
+    }
+}
+
+pub unsafe fn sys_open(_pm: &mut ProcessManager, path: *mut u8) -> usize {
+    let fs = file_system();
+    let mut index = 0;
+    let mut path_str = String::new();
+    loop {
+        let ch = path.add(index).read();
+        if ch == 0 {
+            break;
+        }
+
+        path_str.push(ch as char);
+        index += 1;
+    }
+    let fd = fs.open_file(&path_str);
+    if let Err(_) = fd {
+        return -1_isize as usize;
+    } else {
+        return fd.unwrap();
+    }
 }
 
 pub unsafe fn sys_sleep(pm: &mut ProcessManager, delay: usize) -> usize {
@@ -149,12 +196,25 @@ pub unsafe fn execute_syscall() -> usize {
     let syscall_number = info.get_arg_raw(0);
     // println!("[hobo0xcc] syscall: {}", syscall_number);
     let ret_val = match syscall_number {
+        0 => sys_read(
+            pm,
+            info.get_arg_raw(1),
+            info.get_arg_ptr(2),
+            info.get_arg_raw(3),
+        ),
         1 => sys_write(
             pm,
             info.get_arg_raw(1),
             info.get_arg_ptr::<u8>(2),
             info.get_arg_raw(3),
         ),
+        2 => sys_seek(
+            pm,
+            info.get_arg_raw(1),
+            info.get_arg_raw(2),
+            info.get_arg_raw(3) as u32,
+        ),
+        3 => sys_open(pm, info.get_arg_ptr(1)),
         35 => sys_sleep(pm, info.get_arg_raw(1)),
         56 => sys_wait_exit(pm),
         57 => sys_fork(pm),

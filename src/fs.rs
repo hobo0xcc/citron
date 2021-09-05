@@ -1,6 +1,7 @@
 pub mod fat;
 
 use crate::arch::riscv64::virtio::virtio_blk::*;
+use crate::*;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::string::ToString;
@@ -18,11 +19,20 @@ pub enum Error {
     Msg(String),
     FileNotOpen,
     FileNotExist,
+    UnknownOption,
 }
 
 pub trait BackingFileSystem {
     fn read_at(&mut self, buffer: &mut [u8], path: &str, offset: usize) -> Result<usize, Error>;
     fn file_size(&mut self, path: &str) -> Result<usize, Error>;
+}
+
+#[allow(non_camel_case_types)]
+#[repr(u32)]
+pub enum SeekWhence {
+    SEEK_SET = 0,
+    SEEK_CUR = 1,
+    SEEK_END = 2,
 }
 
 type FileDesc = usize;
@@ -56,7 +66,7 @@ impl<'a, T: BackingFileSystem> FileSystem<'a, T> {
         FileSystem {
             backing,
             desc_table: BTreeMap::new(),
-            curr_fd: 1,
+            curr_fd: 3,
         }
     }
 
@@ -73,11 +83,38 @@ impl<'a, T: BackingFileSystem> FileSystem<'a, T> {
         Ok(self.desc_table.get(&fd).ok_or(Error::FileNotOpen)?.size)
     }
 
-    pub fn read(&mut self, fd: FileDesc, buffer: &mut [u8]) -> Result<(), Error> {
-        let file = self.desc_table.get(&fd).ok_or(Error::FileNotOpen)?;
-        self.backing
+    pub fn seek(&mut self, fd: FileDesc, offset: isize, whence: u32) -> Result<usize, Error> {
+        if whence == SeekWhence::SEEK_SET as u32 {
+            let file = self.desc_table.get_mut(&fd).ok_or(Error::FileNotOpen)?;
+
+            file.offset = offset as usize;
+            return Ok(file.offset);
+        } else if whence == SeekWhence::SEEK_CUR as u32 {
+            let file = self.desc_table.get_mut(&fd).ok_or(Error::FileNotOpen)?;
+
+            let mut offset_isize = file.offset as isize;
+            offset_isize += offset;
+            file.offset = offset_isize as usize;
+            return Ok(file.offset);
+        } else if whence == SeekWhence::SEEK_END as u32 {
+            let file = self.desc_table.get_mut(&fd).ok_or(Error::FileNotOpen)?;
+
+            let mut offset_isize = file.size as isize;
+            offset_isize += offset;
+            file.offset = offset_isize as usize;
+            return Ok(file.offset);
+        } else {
+            return Err(Error::UnknownOption);
+        }
+    }
+
+    pub fn read(&mut self, fd: FileDesc, buffer: &mut [u8]) -> Result<usize, Error> {
+        let file = self.desc_table.get_mut(&fd).ok_or(Error::FileNotOpen)?;
+        let size = self
+            .backing
             .read_at(buffer, file.path.as_str(), file.offset)?;
-        Ok(())
+        file.offset += size;
+        Ok(size)
     }
 }
 

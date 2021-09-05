@@ -52,3 +52,28 @@ wait_exit:
     li a0, 56
     ecall
     ret
+
+.globl read
+read:
+    mv a3, a2
+    mv a2, a1
+    mv a1, a0
+    li a0, 0
+    ecall
+    ret
+
+.globl seek
+seek:
+    mv a3, a2
+    mv a2, a1
+    mv a1, a0
+    li a0, 2
+    ecall
+    ret
+
+.globl open
+open:
+    mv a1, a0
+    li a0, 3
+    ecall
+    ret

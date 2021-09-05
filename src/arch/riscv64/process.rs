@@ -1,5 +1,6 @@
 use super::csr::Csr;
 use super::interrupt;
+use super::interrupt::interrupt_on;
 use super::loader::*;
 use super::paging;
 use super::plic;
