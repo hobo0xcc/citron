@@ -55,5 +55,5 @@ $ make
 ## Run (qemu)
 
 ```bash
-$ make qemu
+$ make qemu-riscv64 MACHINE=virt
 ```
