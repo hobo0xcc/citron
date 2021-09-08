@@ -12,27 +12,27 @@
 #![allow(named_asm_labels)]
 // #![no_implicit_prelude]
 
-extern crate alloc;
-extern crate array_init;
-extern crate embedded_graphics;
-extern crate fontdue;
-extern crate goblin;
-extern crate hashbrown;
-extern crate intrusive_collections;
-extern crate libm;
-extern crate linked_list_allocator;
-extern crate tiny_skia;
-extern crate tinybmp;
-extern crate volatile_register;
+// extern crate alloc;
+// extern crate array_init;
+// extern crate embedded_graphics;
+// extern crate fontdue;
+// extern crate goblin;
+// extern crate hashbrown;
+// extern crate intrusive_collections;
+// extern crate libm;
+// extern crate linked_list_allocator;
+// extern crate tiny_skia;
+// extern crate tinybmp;
+// extern crate volatile_register;
 // extern crate riscv;
 
-pub mod allocator;
+// pub mod allocator;
 pub mod arch;
-pub mod fs;
-pub mod graphics;
+// pub mod fs;
+// pub mod graphics;
 pub mod init;
 pub mod kmain;
-pub mod process;
+// pub mod process;
 
 #[macro_export]
 macro_rules! print {
@@ -74,11 +74,9 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     abort();
 }
 
+
 #[no_mangle]
 extern "C" fn abort() -> ! {
     loop {
-        unsafe {
-            asm!("wfi");
-        }
     }
 }

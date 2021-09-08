@@ -15,6 +15,8 @@ pub extern "C" fn _entry() {
     unsafe {
         #[cfg(all(target_arch = "riscv64"))]
         asm!("j _bootriscv64");
+        #[cfg(all(target_arch = "aarch64"))]
+        asm!("b _bootaarch64");
     }
 }
 

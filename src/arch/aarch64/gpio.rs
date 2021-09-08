@@ -1,0 +1,36 @@
+#[allow(non_camel_case_types)]
+#[derive(Copy, Clone, Debug)]
+#[repr(usize)]
+pub enum Reg {
+    AUX_ENABLE = 0x00215004,
+    AUX_MU_IO = 0x00215040,
+    AUX_MU_IER = 0x00215044,
+    AUX_MU_IIR = 0x00215048,
+    AUX_MU_LCR = 0x0021504C,
+    AUX_MU_MCR = 0x00215050,
+    AUX_MU_LSR = 0x00215054,
+    AUX_MU_MSR = 0x00215058,
+    AUX_MU_SCRATCH = 0x0021505C,
+    AUX_MU_CNTL = 0x00215060,
+    AUX_MU_STAT = 0x00215064,
+    AUX_MU_BAUD = 0x00215068,
+
+    GPFSEL0   = 0x00200000,
+    GPFSEL1   = 0x00200004,
+    GPFSEL2   = 0x00200008,
+    GPFSEL3   = 0x0020000C,
+    GPFSEL4   = 0x00200010,
+    GPFSEL5   = 0x00200014,
+    GPSET0    = 0x0020001C,
+    GPSET1    = 0x00200020,
+    GPCLR0    = 0x00200028,
+    GPLEV0    = 0x00200034,
+    GPLEV1    = 0x00200038,
+    GPEDS0    = 0x00200040,
+    GPEDS1    = 0x00200044,
+    GPHEN0    = 0x00200064,
+    GPHEN1    = 0x00200068,
+    GPPUD     = 0x00200094,
+    GPPUDCLK0 = 0x00200098,
+    GPPUDCLK1 = 0x0020009C,
+}
