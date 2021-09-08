@@ -9,6 +9,7 @@ extern int wait_exit();
 extern int read(int fd, char *buf, int count);
 extern int seek(int fd, long offset, int whence);
 extern int open(char *path);
+extern int execve(char *path);
 
 char buf[4096];
 
@@ -25,27 +26,15 @@ int main(void) {
   }
 
   sync_window(window_id);
-  // char *msg = "hello\n";
-  // write(0, msg, 6);
   int pid = fork();
-  if (pid == 0) {
-    wait_exit();
-    int fd = open("/bin/main.c");
-    if (fd == -1) {
-      char *msg = "Error\n";
-      write(0, msg, 6);
-    }
-    int size = seek(fd, 0, 2);
-    seek(fd, 0, 0);
-    read(fd, buf, size);
-    write(0, buf, size);
-    char nl = '\n';
-    write(0, &nl, 1);
-    char *msg = "Hello, world!\n";
-    write(0, msg, 14);
-  } else {
-    char *msg = "Goodbye, world!\n";
-    write(0, msg, 16);
-  }
+  // if (pid == 0) {
+  //   wait_exit();
+  //   char *msg = "Hello, world!\n";
+  //   write(0, msg, 14);
+  // } else {
+  //   // execve("/bin/app");
+  //   char *msg = "Goodbye, world!\n";
+  //   write(0, msg, 16);
+  // }
   return 0;
 }

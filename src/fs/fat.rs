@@ -1,5 +1,4 @@
 use crate::arch::riscv64::virtio::block_device;
-use crate::arch::target::interrupt::*;
 use crate::process::process_manager;
 use crate::*;
 use alloc::alloc::alloc_zeroed;

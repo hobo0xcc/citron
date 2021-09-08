@@ -1,8 +1,10 @@
 use super::csr::Csr;
 use super::interrupt;
-use super::interrupt::interrupt_on;
+use super::interrupt::*;
 use super::loader::*;
 use super::paging;
+use super::paging::unmap;
+use super::paging::virt_to_phys;
 use super::plic;
 use super::syscall;
 use super::trampoline;
@@ -231,13 +233,12 @@ impl ArchProcess {
 
     pub fn free(&mut self) {
         let user_stack_layout = Layout::from_size_align(self.user_stack_size, 0x1000).unwrap();
-        let kernel_stack_layout = Layout::from_size_align(self.kernel_stack_size, 0x1000).unwrap();
         let page_table_layout = Layout::from_size_align(0x1000, 0x1000).unwrap();
         let trap_frame_layout = Layout::from_size_align(0x1000, 0x1000).unwrap();
 
         unsafe {
             dealloc(self.user_stack as *mut u8, user_stack_layout);
-            dealloc(self.kernel_stack as *mut u8, kernel_stack_layout);
+            unmap(self.page_table.as_mut());
             dealloc(self.page_table.as_ptr() as *mut u8, page_table_layout);
             dealloc(self.trap_frame as *mut u8, trap_frame_layout);
 
@@ -301,6 +302,7 @@ impl ArchProcess {
 
     pub fn exception(&mut self, code: usize) {
         if code == 8 {
+            interrupt_on();
             // system call
             let ret_val = unsafe { syscall::execute_syscall() };
             unsafe {
@@ -367,6 +369,7 @@ impl ArchProcess {
 
         #[cfg(target_pointer_width = "64")]
         let satp = 8_usize << 60 | (self.page_table.as_ptr() as usize >> 12);
+        println!("[hobo0xcc] satp: {:#018x}", satp);
         let func_usize: usize = trampoline::TRAMPOLINE
             + (trampoline::userret as usize - trampoline::trampoline as usize);
 
