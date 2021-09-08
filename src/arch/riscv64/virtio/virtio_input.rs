@@ -837,7 +837,7 @@ impl VirtioInput {
     pub fn init(&mut self) {
         let pm = unsafe { process_manager() };
 
-        pm.wait_semaphore(self.sid);
+        pm.wait_semaphore(self.sid).expect("process");
 
         let magic_value = self.read_reg32(VirtioReg::MagicValue.val());
         let version = self.read_reg32(VirtioReg::Version.val());
@@ -897,20 +897,20 @@ impl VirtioInput {
         status_bits |= VirtioDeviceStatus::DriverOk.val();
         self.write_reg32(VirtioReg::Status.val(), status_bits);
 
-        pm.signal_semaphore(self.sid);
+        pm.signal_semaphore(self.sid).expect("process");
     }
 
     pub fn setup_config(&mut self) {
         let pm = unsafe { process_manager() };
-        pm.wait_semaphore(self.sid);
+        pm.wait_semaphore(self.sid).expect("process");
 
         let config = (self.base + VirtioReg::Config as usize) as *mut VirtioInputConfig;
         unsafe {
-            pm.io_wait(self.pid);
+            pm.io_wait(self.pid).expect("process");
             (*config)
                 .select
                 .write(VirtioInputConfigSelect::InputCfgIdName.val());
-            pm.schedule();
+            pm.schedule().expect("process");
 
             let mut name = String::new();
             let size = (*config).size.read();
@@ -926,15 +926,15 @@ impl VirtioInput {
                 DeviceType::Keyboard => EventType::EV_KEY,
             };
 
-            pm.io_wait(self.pid);
+            pm.io_wait(self.pid).expect("process");
             (*config).subsel.write(event_type as u8);
             (*config)
                 .select
                 .write(VirtioInputConfigSelect::InputCfgEvBits as u8);
-            pm.schedule();
+            pm.schedule().expect("process");
         }
 
-        pm.signal_semaphore(self.sid);
+        pm.signal_semaphore(self.sid).expect("process");
     }
 
     pub fn repopulate_event(&mut self, i: usize) {
@@ -954,7 +954,7 @@ impl VirtioInput {
         // self.setup_config();
 
         let pm = unsafe { process_manager() };
-        pm.wait_semaphore(self.sid);
+        pm.wait_semaphore(self.sid).expect("process");
 
         self.pid = pm.running;
 
@@ -963,7 +963,7 @@ impl VirtioInput {
         }
 
         // self.send_desc(VirtioInputQueue::Eventq, desc_indexes);
-        pm.signal_semaphore(self.sid);
+        pm.signal_semaphore(self.sid).expect("process");
     }
 
     pub fn pending(&mut self) {
@@ -992,8 +992,10 @@ impl VirtioInput {
 
         let pm = unsafe { process_manager() };
         match self.device_type {
-            DeviceType::Mouse => pm.event_signal(ProcessEvent::MouseEvent),
-            DeviceType::Keyboard => pm.event_signal(ProcessEvent::KeyboardEvent),
+            DeviceType::Mouse => pm.event_signal(ProcessEvent::MouseEvent).expect("process"),
+            DeviceType::Keyboard => pm
+                .event_signal(ProcessEvent::KeyboardEvent)
+                .expect("process"),
         }
 
         interrupt_restore(mask);

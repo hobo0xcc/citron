@@ -111,7 +111,7 @@ impl VirtioBlk {
     pub fn init(&mut self) {
         let pm = unsafe { process_manager() };
 
-        pm.wait_semaphore(self.sid);
+        pm.wait_semaphore(self.sid).expect("process");
 
         let magic_value = self.read_reg32(VirtioReg::MagicValue.val());
         let version = self.read_reg32(VirtioReg::Version.val());
@@ -188,7 +188,7 @@ impl VirtioBlk {
         status_bits |= VirtioDeviceStatus::DriverOk.val();
         self.write_reg32(VirtioReg::Status.val(), status_bits);
 
-        pm.signal_semaphore(self.sid);
+        pm.signal_semaphore(self.sid).expect("process");
     }
 
     pub fn find_free_desc(&mut self) -> u16 {
@@ -230,7 +230,7 @@ impl VirtioBlk {
         let pm = unsafe { process_manager() };
 
         // until disk operation end
-        pm.wait_semaphore(self.sid);
+        pm.wait_semaphore(self.sid).expect("process");
 
         self.pid = pm.running;
 
@@ -278,7 +278,7 @@ impl VirtioBlk {
         );
         self.write_desc(desc_indexes[2] as usize, desc);
 
-        pm.signal_semaphore(self.sid);
+        pm.signal_semaphore(self.sid).expect("process");
 
         unsafe {
             let mut avail = self.virtqueue.as_mut().avail.as_mut().unwrap();
@@ -288,9 +288,9 @@ impl VirtioBlk {
             avail.idx = avail.idx.wrapping_add(1);
             asm!("fence iorw, iorw");
             self.desc_indexes = Some(desc_indexes);
-            pm.io_wait(self.pid);
+            pm.io_wait(self.pid).expect("process");
             self.write_reg32(VirtioReg::QueueNotify.val(), 0);
-            pm.schedule();
+            pm.schedule().expect("process");
         }
     }
 
@@ -331,8 +331,8 @@ impl VirtioBlk {
         self.deallocate_desc(&desc_indexes);
 
         let pm = unsafe { process_manager() };
-        pm.io_signal(self.pid);
-        pm.signal_semaphore(self.sid);
+        pm.io_signal(self.pid).expect("process");
+        pm.signal_semaphore(self.sid).expect("process");
     }
 }
 
