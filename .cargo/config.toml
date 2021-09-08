@@ -3,18 +3,14 @@ build-std = ["core", "compiler_builtins", "alloc"]
 build-std-features = ["compiler-builtins-mem"]
 
 [build]
-target = "riscv64-citron.json"
+target = "machine.json"
 
 [target.'cfg(target_pointer_width = "32")']
-# linker = "riscv32-unknown-elf-gcc"
-runner = "qemu-system-riscv32 -machine virt -bios none -m 128M -smp 1 -nographic -kernel"
 rustflags = [
-  "-Clink-args=-Tsrc/linker/virt.ld",
+  "-Clink-args=-Tmachine.ld",
 ]
 
 [target.'cfg(target_pointer_width = "64")']
-# linker = "riscv64-unknown-elf-gcc"
-runner = "qemu-system-riscv64 -machine virt -bios none -m 128M -smp 1 -nographic -kernel"
 rustflags = [
-  "-Clink-args=-Tsrc/linker/virt.ld",
+  "-Clink-args=-Tmachine.ld",
 ]

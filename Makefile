@@ -2,17 +2,22 @@ BIN=kernel.elf
 DISK=disk.img
 MOUNT=mnt
 BUILD=release
+MACHINE=raspi3
+ARCH=$(MACHINE).json
+SCRIPT=src/linker/$(MACHINE).ld
 
 all: $(BIN)
 
 .PHONY: $(BIN)
 $(BIN):
+	cp $(ARCH) machine.json
+	cp $(SCRIPT) machine.ld
 ifeq ($(BUILD),release)
 	cargo build --release
 else
 	cargo build
 endif
-	cp target/riscv64-citron/$(BUILD)/citron $@
+	cp target/machine/$(BUILD)/citron $@
 
 $(DISK):
 	make -C bin
@@ -21,17 +26,26 @@ $(DISK):
 ifeq ($(shell uname),Darwin)
 	hdiutil attach -mountpoint $(MOUNT) $(DISK)
 else
-	mount -o loop $(DISK) $(MOUNT)
+	sudo mount -o loop $(DISK) $(MOUNT)
 endif
 	cp -r resources mnt/
 	cp -r bin mnt/
 ifeq ($(shell uname),Darwin)
 	hdiutil detach $(MOUNT)
 else
-	umount $(MOUNT)
+	sudo umount $(MOUNT)
 endif
 
-qemu: $(BIN) $(DISK)
+qemu-aarch64: $(BIN) $(DISK)
+	qemu-system-aarch64 -M raspi3 -m 128 -serial null -serial stdio -kernel $(BIN) \
+	-drive file=$(DISK),format=raw,if=sd
+	
+qemu-aarch64-gdb: $(BIN) $(DISK)
+	qemu-system-aarch64 -M raspi3 -m 128 -serial null -serial stdio -kernel $(BIN) \
+	-drive file=$(DISK),format=raw,if=sd \
+	-gdb tcp::1234 -S
+
+qemu-riscv64: $(BIN) $(DISK)
 	qemu-system-riscv64 -machine virt \
 	-bios none -kernel $< -m 128M -smp 1 \
 	-global virtio-mmio.force-legacy=false \
@@ -43,7 +57,7 @@ qemu: $(BIN) $(DISK)
 	-monitor none \
 	-serial stdio
 
-qemu-gdb: $(BIN) $(DISK)
+qemu-gdb-riscv64: $(BIN) $(DISK)
 	qemu-system-riscv64 -machine virt \
 	-bios none -kernel $< -m 128M -smp 1 \
 	-global virtio-mmio.force-legacy=false \
