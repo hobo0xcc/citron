@@ -26,7 +26,7 @@ int main(void) {
   }
 
   sync_window(window_id);
-  int pid = fork();
+  // int pid = fork();
   // if (pid == 0) {
   //   wait_exit();
   //   char *msg = "Hello, world!\n";

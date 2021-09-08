@@ -4,7 +4,6 @@ use super::interrupt::*;
 use super::loader::*;
 use super::paging;
 use super::paging::unmap;
-use super::paging::virt_to_phys;
 use super::plic;
 use super::syscall;
 use super::trampoline;
@@ -369,7 +368,6 @@ impl ArchProcess {
 
         #[cfg(target_pointer_width = "64")]
         let satp = 8_usize << 60 | (self.page_table.as_ptr() as usize >> 12);
-        println!("[hobo0xcc] satp: {:#018x}", satp);
         let func_usize: usize = trampoline::TRAMPOLINE
             + (trampoline::userret as usize - trampoline::trampoline as usize);
 
