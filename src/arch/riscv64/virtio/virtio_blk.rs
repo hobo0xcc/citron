@@ -1,6 +1,5 @@
 use super::super::virtio;
 use super::super::virtio::*;
-use crate::arch::riscv64::csr::Csr;
 use crate::fs;
 use crate::process::process_manager;
 use alloc::alloc::dealloc;

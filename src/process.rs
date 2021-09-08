@@ -346,7 +346,7 @@ impl ProcessManager {
 
         // println!("interrupt: {}", is_interrupt_enable());
 
-        println!("[hobo0xcc] switch: {} -> {}", old_pid, new_pid);
+        // println!("[hobo0xcc] switch: {} -> {}", old_pid, new_pid);
         // unsafe {
         //     println!("[hobo0xcc] context.ra: {:#018x}", (*new_context).ra);
         // }

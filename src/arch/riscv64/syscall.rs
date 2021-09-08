@@ -1,14 +1,10 @@
-use super::interrupt::*;
 use super::paging::*;
 use super::process::TrapFrame;
-use crate::arch::riscv64::csr::Csr;
-use crate::arch::riscv64::trampoline;
 use crate::arch::syscall::SysCallInfo;
 use crate::fs::file_system;
 use crate::graphics::*;
 use crate::process::*;
 use crate::*;
-use alloc::alloc::*;
 use alloc::string::*;
 use core::slice;
 use core::slice::from_raw_parts_mut;
@@ -156,16 +152,6 @@ pub unsafe fn sys_execve(pm: &mut ProcessManager, path: *mut u8) -> usize {
         index += 1;
     }
     pm.load_program(pm.running, &path_str);
-    println!(
-        "[hobo0xcc] sepc: {:#018x}",
-        (*pm.ptable[pm.running].arch_proc.trap_frame).epc
-    );
-    let addr = virt_to_phys(
-        pm.ptable[pm.running].arch_proc.page_table.as_mut(),
-        0x0000003ffffff000,
-    )
-    .unwrap();
-    println!("[hobo0xcc] addr: {:#018x}", addr);
 
     pm.ptable[pm.running].arch_proc.user_trap_return();
 
@@ -231,7 +217,6 @@ pub unsafe fn execute_syscall() -> usize {
     let info = syscall_info();
     let pm = process_manager();
     let syscall_number = info.get_arg_raw(0);
-    println!("[hobo0xcc] syscall: {}", syscall_number);
     let ret_val = match syscall_number {
         0 => sys_read(
             pm,
