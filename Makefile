@@ -37,11 +37,11 @@ else
 endif
 
 qemu-aarch64: $(BIN) $(DISK)
-	qemu-system-aarch64 -M raspi3 -m 128 -serial null -serial stdio -kernel $(BIN) \
+	qemu-system-aarch64 -M raspi3 -m 1G -serial null -serial stdio -kernel $(BIN) \
 	-drive file=$(DISK),format=raw,if=sd
 	
 qemu-aarch64-gdb: $(BIN) $(DISK)
-	qemu-system-aarch64 -M raspi3 -m 128 -serial null -serial stdio -kernel $(BIN) \
+	qemu-system-aarch64 -M raspi3 -m 1G -serial null -serial stdio -kernel $(BIN) \
 	-drive file=$(DISK),format=raw,if=sd \
 	-gdb tcp::1234 -S
 

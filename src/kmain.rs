@@ -1,12 +1,12 @@
-use crate::arch::riscv64::virtio::gpu_device;
-use crate::arch::riscv64::virtio::keyboard_device;
-use crate::arch::riscv64::virtio::mouse_device;
-use crate::arch::target::interrupt;
-use crate::arch::target::virtio::virtio_input::*;
-use crate::graphics::layer_manager;
-use crate::graphics::*;
-use crate::process::*;
-use crate::*;
+// use crate::arch::riscv64::virtio::gpu_device;
+// use crate::arch::riscv64::virtio::keyboard_device;
+// use crate::arch::riscv64::virtio::mouse_device;
+// use crate::arch::target::interrupt;
+// use crate::arch::target::virtio::virtio_input::*;
+// use crate::graphics::layer_manager;
+// use crate::graphics::*;
+// use crate::process::*;
+// use crate::*;
 
 // pub unsafe extern "C" fn kproc() {
 //     let pm = process_manager();
@@ -91,9 +91,9 @@ pub extern "C" fn kmain() {
     //     loop {}
     // }
     // Init kernel
-    unsafe {
-        init::init_all();
-    }
+    // unsafe {
+    //     init::init_all();
+    // }
 
     // println!("Initialization done");
     // println!("Hello, citron!");
