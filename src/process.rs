@@ -1,23 +1,17 @@
-use crate::arch::riscv64::trampoline;
 use crate::arch::target::interrupt::interrupt_disable;
 use crate::arch::target::interrupt::interrupt_restore;
-use crate::arch::target::loader::ExecutableInfo;
-use crate::arch::target::loader::*;
-use crate::arch::target::paging::*;
 use crate::arch::target::process::*;
 use crate::*;
 use alloc::alloc::alloc;
-use alloc::alloc::alloc_zeroed;
 use alloc::alloc::dealloc;
 use alloc::boxed::Box;
 use alloc::collections::binary_heap::BinaryHeap;
+use alloc::collections::BTreeMap;
 use alloc::collections::VecDeque;
 use alloc::vec;
 use alloc::vec::Vec;
-use array_init::array_init;
 use core::alloc::Layout;
 use core::cmp::Ordering;
-use core::ptr::NonNull;
 use hashbrown::HashMap;
 use intrusive_collections::intrusive_adapter;
 use intrusive_collections::{LinkedList, LinkedListLink};
@@ -50,16 +44,16 @@ pub const KERNEL_STACK_SIZE: usize = 0x10000;
 pub struct Process {
     pub state: State,
     pub arch_proc: ArchProcess,
-    pub pid: usize,
+    pub pid: Pid,
     pub priority: usize,
-    children: VecDeque<usize>,
+    children: VecDeque<Pid>,
     pub name: [u8; 64],
     pub kernel_stack: usize,
     pub user_stack: usize,
 }
 
 impl Process {
-    pub fn new(pid: usize) -> Self {
+    pub fn new(pid: Pid) -> Self {
         Process {
             state: State::Free,
             arch_proc: ArchProcess::new(pid),
@@ -76,7 +70,7 @@ impl Process {
 #[derive(Clone)]
 pub struct ProcessDesc {
     pub priority: usize,
-    pub pid: usize,
+    pub pid: Pid,
 }
 
 impl ProcessDesc {
@@ -165,129 +159,168 @@ impl Semaphore {
     }
 }
 
-const PTABLE_SIZE: usize = 16;
-const STABLE_SIZE: usize = 16;
+#[derive(Copy, Clone, Debug)]
+pub enum ProcessError {
+    ProcessNotFound(Pid),
+    SemaphoreNotFound(Sid),
+}
+
+type Pid = usize;
+type Sid = usize;
 
 #[allow(dead_code)]
 pub struct ProcessManager {
-    pub ptable: [Process; PTABLE_SIZE],
-    pub stable: [Semaphore; STABLE_SIZE],
+    pub ptable: BTreeMap<Pid, Process>,
+    pub stable: BTreeMap<Sid, Semaphore>,
     pub pqueue: BinaryHeap<ProcessDesc>, // Ready list
     sleep_queue: LinkedList<ProcessDelayAdapter>,
-    event_queue: HashMap<ProcessEvent, Vec<usize>>,
+    event_queue: HashMap<ProcessEvent, Vec<Pid>>,
     defer: DeferScheduler,
-    pub curr_pid: usize,
-    pub running: usize,
+    pub curr_pid: Pid,
+    pub curr_sid: Sid,
+    pub running: Pid,
 }
 
 impl ProcessManager {
     pub fn new() -> Self {
-        let ptable: [Process; PTABLE_SIZE] = array_init(|i| Process::new(i)); // [Process::new(0); PTABLE_SIZE];
-        let stable: [Semaphore; STABLE_SIZE] = array_init(|_i| Semaphore::new(1));
-
         ProcessManager {
-            ptable,
-            stable,
+            ptable: BTreeMap::new(),
+            stable: BTreeMap::new(),
             pqueue: BinaryHeap::new(),
             sleep_queue: LinkedList::new(ProcessDelayAdapter::new()),
             event_queue: HashMap::new(),
             defer: DeferScheduler::new(),
             curr_pid: 0,
+            curr_sid: 0,
             running: 0,
         }
     }
 
-    pub fn load_program(&mut self, pid: usize, path: &str) {
-        self.ptable[pid].arch_proc.init_program(path);
+    pub fn get_process(&mut self, pid: Pid) -> Result<&Process, ProcessError> {
+        match self.ptable.get(&pid) {
+            Some(proc) => Ok(proc),
+            None => Err(ProcessError::ProcessNotFound(pid)),
+        }
     }
 
-    pub fn init(&mut self) {
-        let pid = self.create_process("null", 0, true);
-        // self.load_program(pid, nullproc::null_proc as usize, 0x1000);
-        self.ptable[pid].state = State::Running;
+    pub fn get_semaphore(&mut self, sid: Sid) -> Result<&Semaphore, ProcessError> {
+        match self.stable.get(&sid) {
+            Some(sema) => Ok(sema),
+            None => Err(ProcessError::SemaphoreNotFound(sid)),
+        }
+    }
+
+    pub fn get_process_mut(&mut self, pid: Pid) -> Result<&mut Process, ProcessError> {
+        match self.ptable.get_mut(&pid) {
+            Some(proc) => Ok(proc),
+            None => Err(ProcessError::ProcessNotFound(pid)),
+        }
+    }
+
+    pub fn get_semaphore_mut(&mut self, sid: Sid) -> Result<&mut Semaphore, ProcessError> {
+        match self.stable.get_mut(&sid) {
+            Some(sema) => Ok(sema),
+            None => Err(ProcessError::SemaphoreNotFound(sid)),
+        }
+    }
+
+    pub fn load_program(&mut self, pid: Pid, path: &str) -> Result<(), ProcessError> {
+        self.get_process_mut(pid)?.arch_proc.init_program(path);
+
+        Ok(())
+    }
+
+    pub fn init(&mut self) -> Result<(), ProcessError> {
+        let pid = self.create_process("null", 0, true)?;
+        self.get_process_mut(pid)?.state = State::Running;
         self.running = pid;
+
+        Ok(())
     }
 
     pub fn create_semaphore(&mut self, count: isize) -> usize {
         let mask = interrupt_disable();
 
-        for (i, sema) in self.stable.iter_mut().enumerate() {
-            if sema.state == SemaState::Free {
-                sema.state = SemaState::Used;
-                sema.count = count;
-                interrupt_restore(mask);
-                return i;
-            }
-        }
+        let sid = self.curr_sid;
+        self.curr_sid += 1;
+
+        self.stable.insert(sid, Semaphore::new(count));
 
         interrupt_restore(mask);
-        panic!("semaphore exhausted");
+
+        sid
     }
 
-    pub fn wait_semaphore(&mut self, sid: usize) {
+    pub fn wait_semaphore(&mut self, sid: Sid) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 
         let pid = self.running;
-        let sema = &mut self.stable[sid];
-        sema.count -= 1;
-        if sema.count < 0 {
-            self.ptable[pid].state = State::SemaWait;
-            sema.queue.push_back(pid);
-            self.schedule();
+        self.get_semaphore_mut(sid)?.count -= 1;
+        let count = self.get_semaphore_mut(sid)?.count;
+        if count < 0 {
+            self.get_process_mut(pid)?.state = State::SemaWait;
+            self.get_semaphore_mut(sid)?.queue.push_back(pid);
+            self.schedule()?;
         }
 
         interrupt_restore(mask);
+
+        Ok(())
     }
 
-    pub fn signal_semaphore(&mut self, sid: usize) {
+    pub fn signal_semaphore(&mut self, sid: Sid) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 
-        if self.stable[sid].count < 0 {
-            let pid = self.stable[sid].queue.pop_front().unwrap();
-            self.stable[sid].count += 1;
-            self.ready(pid);
+        if self.get_semaphore(sid)?.count < 0 {
+            let pid = self.get_semaphore_mut(sid)?.queue.pop_front().unwrap();
+            self.get_semaphore_mut(sid)?.count += 1;
+            self.ready(pid)?;
         } else {
-            self.stable[sid].count += 1;
+            self.get_semaphore_mut(sid)?.count += 1;
         }
 
         interrupt_restore(mask);
+
+        Ok(())
     }
 
-    pub fn delete_semaphore(&mut self, sid: usize) {
+    pub fn delete_semaphore(&mut self, sid: usize) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 
-        self.stable[sid].state = SemaState::Free;
+        self.get_semaphore_mut(sid)?.state = SemaState::Free;
 
-        self.defer_schedule(DeferCommand::Start);
+        self.defer_schedule(DeferCommand::Start)?;
 
-        while self.stable[sid].count < 0 {
-            let pid = self.stable[sid].queue.pop_front().unwrap();
-            self.ready(pid);
-            self.stable[sid].count += 1;
+        while self.get_semaphore(sid)?.count < 0 {
+            let pid = self.get_semaphore_mut(sid)?.queue.pop_front().unwrap();
+            self.ready(pid)?;
+            self.get_semaphore_mut(sid)?.count += 1;
         }
 
-        self.defer_schedule(DeferCommand::Stop);
+        self.defer_schedule(DeferCommand::Stop)?;
 
-        self.schedule();
+        self.schedule()?;
 
         interrupt_restore(mask);
+
+        Ok(())
     }
 
-    pub fn pop_ready_proc(&mut self) -> Option<ProcessDesc> {
+    pub fn pop_ready_proc(&mut self) -> Result<Option<ProcessDesc>, ProcessError> {
         let proc_desc = &mut self.pqueue.pop();
 
         while let Some(p) = proc_desc {
-            if self.ptable[p.pid].state == State::Ready {
+            if self.get_process(p.pid)?.state == State::Ready {
                 break;
             }
 
             *proc_desc = self.pqueue.pop();
         }
 
-        (*proc_desc).clone()
+        Ok((*proc_desc).clone())
     }
 
-    pub fn defer_schedule(&mut self, cmd: DeferCommand) {
+    pub fn defer_schedule(&mut self, cmd: DeferCommand) -> Result<(), ProcessError> {
         match cmd {
             DeferCommand::Start => {
                 if self.defer.count == 0 {
@@ -298,137 +331,131 @@ impl ProcessManager {
             DeferCommand::Stop => {
                 self.defer.count -= 1;
                 if self.defer.count == 0 && self.defer.attempt {
-                    self.schedule();
+                    self.schedule()?;
                 }
             }
         }
+
+        Ok(())
     }
 
-    pub fn schedule(&mut self) {
+    pub fn schedule(&mut self) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 
         if self.defer.count > 0 {
             self.defer.attempt = true;
             interrupt_restore(mask);
-            return;
+            return Ok(());
         }
 
-        let proc = self.pop_ready_proc(); // self.pqueue.pop();
+        let proc = self.pop_ready_proc()?; // self.pqueue.pop();
         let pdesc = if let Some(desc) = proc {
             desc
         } else {
             interrupt_restore(mask);
-            return;
+            return Ok(());
         };
 
         let old_pid = self.running;
         let new_pid = pdesc.pid;
-        let old_priority = self.ptable[self.running].priority;
-        let new_priority = self.ptable[pdesc.pid].priority;
+        let old_priority = self.get_process(self.running)?.priority;
+        let new_priority = self.get_process(pdesc.pid)?.priority;
 
-        let old_context = (&self.ptable[old_pid].arch_proc.context) as *const Context;
-        let new_context = (&self.ptable[new_pid].arch_proc.context) as *const Context;
+        let old_context = (&self.get_process(old_pid)?.arch_proc.context) as *const Context;
+        let new_context = (&self.get_process(new_pid)?.arch_proc.context) as *const Context;
         if old_priority <= new_priority {
-            if self.ptable[self.running].state == State::Running {
-                self.ptable[self.running].state = State::Ready;
+            if self.get_process(self.running)?.state == State::Running {
+                self.get_process_mut(self.running)?.state = State::Ready;
                 self.pqueue.push(ProcessDesc::new(old_priority, old_pid));
             }
         } else {
-            if self.ptable[self.running].state == State::Running {
+            if self.get_process(self.running)?.state == State::Running {
                 self.pqueue.push(ProcessDesc::new(new_priority, new_pid));
                 interrupt_restore(mask);
-                return;
+                return Ok(());
             }
         }
 
-        self.ptable[new_pid].state = State::Running;
+        self.get_process_mut(new_pid)?.state = State::Running;
         self.running = new_pid;
 
-        // println!("interrupt: {}", is_interrupt_enable());
-
         // println!("[hobo0xcc] switch: {} -> {}", old_pid, new_pid);
-        // unsafe {
-        //     println!("[hobo0xcc] context.ra: {:#018x}", (*new_context).ra);
-        // }
-        // let mut sp: usize = 0;
-        // unsafe {
-        //     asm!("mv {}, sp", out(reg)sp);
-        // }
-        // println!("sp: {:#018x}", sp);
 
         unsafe {
             context_switch(old_context as usize, new_context as usize);
         }
         interrupt_restore(mask);
+
+        Ok(())
     }
 
-    pub fn ready(&mut self, pid: usize) {
-        if self.ptable[pid].state == State::Free
-            || self.ptable[pid].state == State::Running
-            || self.ptable[pid].state == State::Ready
+    pub fn ready(&mut self, pid: usize) -> Result<(), ProcessError> {
+        if self.get_process(pid)?.state == State::Free
+            || self.get_process(pid)?.state == State::Running
+            || self.get_process(pid)?.state == State::Ready
         {
-            return;
+            return Ok(());
         }
-        self.ptable[pid].state = State::Ready;
-        let priority = self.ptable[pid].priority;
+        self.get_process_mut(pid)?.state = State::Ready;
+        let priority = self.get_process(pid)?.priority;
         self.pqueue.push(ProcessDesc::new(priority, pid));
-        self.schedule();
+        self.schedule()?;
+
+        Ok(())
     }
 
-    pub fn setup_kernel_process(&mut self, pid: usize, func: usize) {
-        let kernel_stack = self.ptable[pid].kernel_stack;
+    pub fn setup_kernel_process(&mut self, pid: usize, func: usize) -> Result<(), ProcessError> {
+        let kernel_stack = self.get_process(pid)?.kernel_stack;
 
-        self.ptable[pid].arch_proc = ArchProcess::new(pid);
+        self.get_process_mut(pid)?.arch_proc = ArchProcess::new(pid);
 
-        self.ptable[pid]
+        self.get_process_mut(pid)?
             .arch_proc
             .init(func, kernel_stack, KERNEL_STACK_SIZE);
+
+        Ok(())
     }
 
-    pub fn setup_process(&mut self, pid: usize) {
-        let kernel_stack = self.ptable[pid].kernel_stack;
+    pub fn setup_process(&mut self, pid: usize) -> Result<(), ProcessError> {
+        let kernel_stack = self.get_process(pid)?.kernel_stack;
 
-        self.ptable[pid].arch_proc = ArchProcess::new(pid);
+        self.get_process_mut(pid)?.arch_proc = ArchProcess::new(pid);
 
-        self.ptable[pid].arch_proc.init(
+        self.get_process_mut(pid)?.arch_proc.init(
             ArchProcess::user_trap_return as usize,
             kernel_stack,
             KERNEL_STACK_SIZE,
         );
+
+        Ok(())
     }
 
-    pub fn create_kernel_process(&mut self, name: &str, priority: usize, func: usize) -> usize {
-        // let mask = interrupt_disable();
+    pub fn create_kernel_process(
+        &mut self,
+        name: &str,
+        priority: usize,
+        func: usize,
+    ) -> Result<usize, ProcessError> {
+        let pid = self.create_process(name, priority, false)?;
+        self.setup_kernel_process(pid, func)?;
 
-        let pid = self.create_process(name, priority, false);
-        self.setup_kernel_process(pid, func);
-
-        // interrupt_restore(mask);
-
-        pid
+        Ok(pid)
     }
 
-    pub fn create_process(&mut self, name: &str, priority: usize, do_setup: bool) -> usize {
-        self.defer_schedule(DeferCommand::Start);
-        // search free process entry
-        let mut count = 0_usize;
-        let mut idx = self.curr_pid;
-        loop {
-            if count > PTABLE_SIZE {
-                panic!("process table exhausted");
-            }
+    pub fn create_process(
+        &mut self,
+        name: &str,
+        priority: usize,
+        do_setup: bool,
+    ) -> Result<usize, ProcessError> {
+        self.defer_schedule(DeferCommand::Start)?;
+        let pid = self.curr_pid;
 
-            if self.ptable[idx].state == State::Free {
-                break;
-            }
-            count += 1;
-            idx += 1;
-            idx %= PTABLE_SIZE;
-        }
+        self.curr_pid += 1;
 
-        self.curr_pid = (idx + 1) % PTABLE_SIZE;
+        self.ptable.insert(pid, Process::new(pid));
 
-        let mut proc = &mut self.ptable[idx];
+        let mut proc = self.get_process_mut(pid)?;
         proc.priority = priority;
         let name_bytes = name.as_bytes();
         for i in 0_usize..64 {
@@ -444,19 +471,18 @@ impl ProcessManager {
         proc.kernel_stack = kernel_stack as usize;
         proc.state = State::Suspend;
 
-        let pid = proc.pid;
         drop(proc);
 
         if do_setup {
-            self.setup_process(pid);
+            self.setup_process(pid)?;
         }
 
-        self.defer_schedule(DeferCommand::Stop);
+        self.defer_schedule(DeferCommand::Stop)?;
 
-        pid
+        Ok(pid)
     }
 
-    pub fn wakeup(&mut self) {
+    pub fn wakeup(&mut self) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 
         let ptr = self.sleep_queue.pop_front();
@@ -480,23 +506,25 @@ impl ProcessManager {
             }
             drop(cursor);
 
-            self.defer_schedule(DeferCommand::Start);
+            self.defer_schedule(DeferCommand::Start)?;
             for pid in pids.into_iter() {
-                if self.ptable[pid].state == State::Sleep {
-                    self.ready(pid);
+                if self.get_process(pid)?.state == State::Sleep {
+                    self.ready(pid)?;
                 }
             }
-            self.defer_schedule(DeferCommand::Stop);
+            self.defer_schedule(DeferCommand::Stop)?;
 
-            self.schedule();
+            self.schedule()?;
         }
 
         interrupt_restore(mask);
+
+        Ok(())
     }
 
-    pub fn sleep(&mut self, pid: usize, delay: usize) {
+    pub fn sleep(&mut self, pid: usize, delay: usize) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
-        self.ptable[pid].state = State::Sleep;
+        self.get_process_mut(pid)?.state = State::Sleep;
 
         let mut insert_node = self.sleep_queue.front_mut();
         let mut delay_sum: usize = 0;
@@ -519,216 +547,123 @@ impl ProcessManager {
                 insert_node.replace_with(Box::new(ProcessDelay::new(pid, delay - relative_delay)));
         }
 
-        self.schedule();
+        self.schedule()?;
 
         interrupt_restore(mask);
+
+        Ok(())
     }
 
-    pub fn kill(&mut self, pid: usize) {
+    pub fn kill(&mut self, pid: usize) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 
-        match self.ptable[pid].state {
+        match self.get_process(pid)?.state {
             State::Free => {}
             _ => {
-                self.ptable[pid].state = State::Free;
+                self.get_process_mut(pid)?.state = State::Free;
             }
         }
 
-        self.ptable[pid].arch_proc.free();
+        self.get_process_mut(pid)?.arch_proc.free();
         let layout = Layout::from_size_align(KERNEL_STACK_SIZE, 0x1000).unwrap();
         unsafe {
-            dealloc(self.ptable[pid].kernel_stack as *mut u8, layout);
+            dealloc(self.get_process(pid)?.kernel_stack as *mut u8, layout);
         }
 
-        self.event_signal(ProcessEvent::Exit(pid));
+        self.event_signal(ProcessEvent::Exit(pid))?;
 
-        self.schedule();
-
-        interrupt_restore(mask);
-    }
-
-    pub fn io_wait(&mut self, pid: usize) {
-        let mask = interrupt_disable();
-
-        self.ptable[pid].state = State::IOWait;
+        self.schedule()?;
 
         interrupt_restore(mask);
+
+        Ok(())
     }
 
-    pub fn io_signal(&mut self, pid: usize) {
+    pub fn io_wait(&mut self, pid: usize) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 
-        self.ready(pid);
+        self.get_process_mut(pid)?.state = State::IOWait;
 
         interrupt_restore(mask);
+
+        Ok(())
     }
 
-    pub fn event_wait(&mut self, pid: usize, event: ProcessEvent) {
+    pub fn io_signal(&mut self, pid: usize) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 
-        self.ptable[pid].state = State::EventWait;
+        self.ready(pid)?;
+
+        interrupt_restore(mask);
+
+        Ok(())
+    }
+
+    pub fn event_wait(&mut self, pid: usize, event: ProcessEvent) -> Result<(), ProcessError> {
+        let mask = interrupt_disable();
+
+        self.get_process_mut(pid)?.state = State::EventWait;
         self.event_queue
             .entry(event)
             .or_insert_with(|| vec![])
             .push(pid);
 
-        self.schedule();
+        self.schedule()?;
 
         interrupt_restore(mask);
+
+        Ok(())
     }
 
-    pub fn event_signal(&mut self, event: ProcessEvent) {
+    pub fn event_signal(&mut self, event: ProcessEvent) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 
-        self.defer_schedule(DeferCommand::Start);
+        self.defer_schedule(DeferCommand::Start)?;
         let events = self.event_queue.remove(&event);
         let events = if let Some(events) = events {
             events
         } else {
-            self.defer_schedule(DeferCommand::Stop);
+            self.defer_schedule(DeferCommand::Stop)?;
             interrupt_restore(mask);
-            return;
+            return Ok(());
         };
         for pid in events.iter() {
-            self.ready(*pid);
+            self.ready(*pid)?;
         }
-        self.defer_schedule(DeferCommand::Stop);
+        self.defer_schedule(DeferCommand::Stop)?;
 
-        self.schedule();
+        self.schedule()?;
 
         interrupt_restore(mask);
+
+        Ok(())
     }
 
-    pub fn wait_exit(&mut self) {
+    pub fn wait_exit(&mut self) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 
-        for pid in self.ptable[self.running].children.clone() {
-            if self.ptable[pid].state == State::Free {
-                self.ptable[self.running].children.remove(pid);
-                return;
+        for pid in self.get_process(self.running)?.children.clone() {
+            if self.get_process(pid)?.state == State::Free {
+                self.get_process_mut(self.running)?.children.remove(pid);
+                return Ok(());
             }
         }
 
-        self.defer_schedule(DeferCommand::Start);
-        for pid in self.ptable[self.running].children.clone() {
-            self.event_wait(self.running, ProcessEvent::Exit(pid));
+        self.defer_schedule(DeferCommand::Start)?;
+        for pid in self.get_process(self.running)?.children.clone() {
+            self.event_wait(self.running, ProcessEvent::Exit(pid))?;
         }
-        self.defer_schedule(DeferCommand::Stop);
+        self.defer_schedule(DeferCommand::Stop)?;
 
-        self.schedule();
+        self.schedule()?;
 
         interrupt_restore(mask);
+
+        Ok(())
     }
 
-    pub fn fork(&mut self, pid: usize) -> usize {
-        let mask = interrupt_disable();
-
-        let new_pid = self.curr_pid;
-        self.curr_pid += 1;
-        let mut new_proc = Process::new(new_pid);
-
-        self.ptable[pid].children.push_back(new_pid);
-
-        new_proc.pid = new_pid;
-        new_proc.state = State::Suspend;
-
-        let layout = Layout::from_size_align(0x1000, 0x1000).unwrap();
-        let new_trapframe = unsafe { alloc_zeroed(layout) };
-        unsafe {
-            new_trapframe.copy_from_nonoverlapping(
-                self.ptable[pid].arch_proc.trap_frame as *const u8,
-                0x1000,
-            );
-            new_proc.arch_proc.trap_frame = new_trapframe as *mut TrapFrame;
-        }
-
-        let layout =
-            Layout::from_size_align(self.ptable[pid].arch_proc.kernel_stack_size, 0x1000).unwrap();
-        let kernel_stack = unsafe { alloc_zeroed(layout) };
-        unsafe {
-            kernel_stack.copy_from_nonoverlapping(
-                self.ptable[pid].arch_proc.kernel_stack as *const u8,
-                self.ptable[pid].arch_proc.kernel_stack_size,
-            );
-        }
-
-        let layout =
-            Layout::from_size_align(self.ptable[pid].arch_proc.user_stack_size, 0x1000).unwrap();
-        let user_stack = unsafe { alloc_zeroed(layout) };
-        unsafe {
-            user_stack.copy_from_nonoverlapping(
-                self.ptable[pid].arch_proc.user_stack as *const u8,
-                self.ptable[pid].arch_proc.user_stack_size,
-            );
-        }
-
-        unsafe {
-            new_proc.arch_proc.page_table =
-                NonNull::new(self.ptable[pid].arch_proc.page_table.as_mut().clone()).unwrap();
-        }
-
-        new_proc.arch_proc.kernel_stack = kernel_stack as usize;
-        new_proc.kernel_stack = kernel_stack as usize;
-        new_proc.arch_proc.init_context(
-            ArchProcess::user_trap_return as usize,
-            self.ptable[pid].arch_proc.kernel_stack + self.ptable[pid].arch_proc.kernel_stack_size,
-        );
-        new_proc.arch_proc.user_stack = user_stack as usize;
-
-        unsafe {
-            map(
-                new_proc.arch_proc.page_table.as_mut(),
-                USER_STACK_START - USER_STACK_SIZE,
-                new_proc.arch_proc.user_stack,
-                EntryBits::R.val() | EntryBits::W.val() | EntryBits::U.val(),
-                0,
-            );
-            map(
-                new_proc.arch_proc.page_table.as_mut(),
-                trampoline::TRAPFRAME,
-                new_proc.arch_proc.trap_frame as usize,
-                EntryBits::R.val() | EntryBits::W.val(),
-                0,
-            );
-        }
-
-        let mut new_exec_info = ExecutableInfo {
-            entry: self.ptable[pid].arch_proc.exec_info.entry,
-            segment_buffers: Vec::new(),
-        };
-        for segment in self.ptable[pid].arch_proc.exec_info.segment_buffers.iter() {
-            let new_layout = segment.layout.clone();
-            let new_segment = unsafe { alloc_zeroed(new_layout) };
-            let vm_range = segment.vm_range.clone();
-            let flags = segment.flags;
-            unsafe {
-                new_segment.copy_from_nonoverlapping(segment.ptr, new_layout.size());
-                map_range(
-                    new_proc.arch_proc.page_table.as_mut(),
-                    vm_range.start,
-                    new_segment as usize,
-                    vm_range.len(),
-                    flags,
-                );
-            }
-
-            new_exec_info.segment_buffers.push(Segment::new(
-                new_segment,
-                new_layout,
-                vm_range,
-                flags,
-            ));
-        }
-
-        new_proc.arch_proc.exec_info = new_exec_info;
-
-        self.ptable[new_pid] = new_proc;
-
-        self.ptable[new_pid].priority = 1;
-
-        interrupt_restore(mask);
-
-        new_pid
+    pub fn fork(&mut self, _pid: usize) -> usize {
+        0
     }
 }
 
@@ -741,7 +676,7 @@ pub unsafe fn process_manager() -> &'static mut ProcessManager {
 
 pub fn init() {
     let mut pm = ProcessManager::new();
-    pm.init();
+    pm.init().expect("process");
     unsafe {
         PM = Some(pm);
     }

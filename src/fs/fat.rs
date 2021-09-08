@@ -110,7 +110,7 @@ impl<'a, T: Disk> Fat32<'a, T> {
 
     pub unsafe fn init(&mut self) {
         let pm = process_manager();
-        pm.wait_semaphore(self.sid);
+        pm.wait_semaphore(self.sid).expect("process");
 
         self.read_bootsector();
         let bs = *(self.buffer.as_mut_ptr() as *mut Fat32BootSector);
@@ -154,7 +154,7 @@ impl<'a, T: Disk> Fat32<'a, T> {
         self.root_dir_first_cluster = root_dir_first_cluster;
         self.sector_size = bs.BPB_BytsPerSec as u32;
 
-        pm.signal_semaphore(self.sid);
+        pm.signal_semaphore(self.sid).expect("process");
     }
 
     #[allow(unaligned_references)]

@@ -292,7 +292,7 @@ impl VirtioGpu {
     pub fn init(&mut self) {
         let pm = unsafe { process_manager() };
 
-        pm.wait_semaphore(self.sid);
+        pm.wait_semaphore(self.sid).expect("process");
 
         let magic_value = self.read_reg32(VirtioReg::MagicValue.val());
         let version = self.read_reg32(VirtioReg::Version.val());
@@ -371,12 +371,12 @@ impl VirtioGpu {
         status_bits |= VirtioDeviceStatus::DriverOk.val();
         self.write_reg32(VirtioReg::Status.val(), status_bits);
 
-        pm.signal_semaphore(self.sid);
+        pm.signal_semaphore(self.sid).expect("process");
     }
 
     pub fn init_display(&mut self) {
         let pm = unsafe { process_manager() };
-        pm.wait_semaphore(self.sid);
+        pm.wait_semaphore(self.sid).expect("process");
         self.pid = pm.running;
         // virtio_gpu settings
         let display_info = self.get_display_info();
@@ -392,7 +392,7 @@ impl VirtioGpu {
 
         self.set_scanout(self.width, self.height, resource_id);
 
-        pm.signal_semaphore(self.sid);
+        pm.signal_semaphore(self.sid).expect("process");
     }
 
     pub fn get_pixel_size(&mut self) -> u32 {
@@ -458,9 +458,9 @@ impl VirtioGpu {
             avail.idx = avail.idx.wrapping_add(1);
             asm!("fence iorw, iorw");
             self.desc_indexes = Some(desc_indexes);
-            pm.io_wait(self.pid);
+            pm.io_wait(self.pid).expect("process");
             self.write_reg32(VirtioReg::QueueNotify.val(), queue as u32);
-            pm.schedule();
+            pm.schedule().expect("process");
         }
     }
 
@@ -821,8 +821,8 @@ impl VirtioGpu {
         self.deallocate_desc(&desc_indexes);
 
         let pm = unsafe { process_manager() };
-        pm.io_signal(self.pid);
-        pm.signal_semaphore(self.sid);
+        pm.io_signal(self.pid).expect("process");
+        pm.signal_semaphore(self.sid).expect("process");
 
         interrupt_restore(mask);
         // println!("virtio_gpu pending end");

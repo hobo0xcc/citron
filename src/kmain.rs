@@ -26,7 +26,8 @@ pub unsafe extern "C" fn kproc() {
     loop {
         let queue = &mut mouse.event_queue; //mouse_event_queue();
         if queue.is_empty() {
-            pm.event_wait(pm.running, ProcessEvent::MouseEvent);
+            pm.event_wait(pm.running, ProcessEvent::MouseEvent)
+                .expect("process");
             continue;
         }
 
@@ -65,19 +66,19 @@ pub unsafe extern "C" fn fs_proc() {
     fs::fat::init();
     fs::init();
     let pm = process_manager();
-    let pid = pm.create_process("user", 1, true);
-    pm.load_program(pid, "/bin/main");
-    pm.ready(pid);
+    let pid = pm.create_process("user", 1, true).expect("process");
+    pm.load_program(pid, "/bin/main").expect("process");
+    pm.ready(pid).expect("process");
     // let pid = pm.create_process("user", 1, true);
     // pm.load_program(pid, "/bin/main");
     // pm.ready(pid);
 
     // pm.kill(pm.running);
-    pm.ptable[pm.running].state = State::Free;
-    pm.schedule();
+    pm.get_process_mut(pm.running).expect("process").state = State::Free;
+    pm.schedule().expect("process");
 
     loop {
-        pm.schedule();
+        pm.schedule().expect("process");
     }
 }
 
@@ -103,19 +104,23 @@ pub extern "C" fn kmain() {
     // start preemption
     interrupt::interrupt_on();
 
-    pm.defer_schedule(DeferCommand::Start);
+    pm.defer_schedule(DeferCommand::Start).expect("process");
 
-    let pid = pm.create_kernel_process("fs", 1, fs_proc as usize);
-    pm.ready(pid);
+    let pid = pm
+        .create_kernel_process("fs", 1, fs_proc as usize)
+        .expect("process");
+    pm.ready(pid).expect("process");
 
-    let pid = pm.create_kernel_process("kproc", 2, kproc as usize);
-    pm.ready(pid);
+    let pid = pm
+        .create_kernel_process("kproc", 2, kproc as usize)
+        .expect("process");
+    pm.ready(pid).expect("process");
 
-    pm.defer_schedule(DeferCommand::Stop);
+    pm.defer_schedule(DeferCommand::Stop).expect("process");
 
     interrupt::timer_interrupt_on();
 
     loop {
-        pm.schedule();
+        pm.schedule().expect("process");
     }
 }

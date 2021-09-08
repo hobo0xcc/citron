@@ -103,7 +103,7 @@ pub unsafe extern "C" fn kernel_trap() {
         panic!("interrupts enabled");
     }
     let pm = process_manager();
-    let proc = &mut pm.ptable[pm.running];
+    let proc = pm.get_process_mut(pm.running).unwrap();
 
     if scause_val & (1 << 63) != 0 {
         ArchProcess::interrupt(&mut proc.arch_proc, scause_val & !(1 << 63));
