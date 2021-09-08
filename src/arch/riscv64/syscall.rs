@@ -1,10 +1,14 @@
+use super::interrupt::*;
 use super::paging::*;
 use super::process::TrapFrame;
+use crate::arch::riscv64::csr::Csr;
+use crate::arch::riscv64::trampoline;
 use crate::arch::syscall::SysCallInfo;
 use crate::fs::file_system;
 use crate::graphics::*;
-use crate::process::{process_manager, ProcessManager};
+use crate::process::*;
 use crate::*;
+use alloc::alloc::*;
 use alloc::string::*;
 use core::slice;
 use core::slice::from_raw_parts_mut;
@@ -135,6 +139,39 @@ pub unsafe fn sys_kill(pm: &mut ProcessManager) -> usize {
     0
 }
 
+pub unsafe fn sys_execve(pm: &mut ProcessManager, path: *mut u8) -> usize {
+    // pm.ptable[pm.running].arch_proc.free();
+
+    pm.setup_process(pm.running);
+
+    let mut path_str = String::new();
+    let mut index = 0;
+    loop {
+        let ch = path.add(index).read();
+        if ch == 0 {
+            break;
+        }
+
+        path_str.push(ch as char);
+        index += 1;
+    }
+    pm.load_program(pm.running, &path_str);
+    println!(
+        "[hobo0xcc] sepc: {:#018x}",
+        (*pm.ptable[pm.running].arch_proc.trap_frame).epc
+    );
+    let addr = virt_to_phys(
+        pm.ptable[pm.running].arch_proc.page_table.as_mut(),
+        0x0000003ffffff000,
+    )
+    .unwrap();
+    println!("[hobo0xcc] addr: {:#018x}", addr);
+
+    pm.ptable[pm.running].arch_proc.user_trap_return();
+
+    0
+}
+
 pub unsafe fn sys_create_window(
     _pm: &mut ProcessManager,
     title: *mut u8,
@@ -194,7 +231,7 @@ pub unsafe fn execute_syscall() -> usize {
     let info = syscall_info();
     let pm = process_manager();
     let syscall_number = info.get_arg_raw(0);
-    // println!("[hobo0xcc] syscall: {}", syscall_number);
+    println!("[hobo0xcc] syscall: {}", syscall_number);
     let ret_val = match syscall_number {
         0 => sys_read(
             pm,
@@ -219,6 +256,7 @@ pub unsafe fn execute_syscall() -> usize {
         56 => sys_wait_exit(pm),
         57 => sys_fork(pm),
         62 => sys_kill(pm),
+        63 => sys_execve(pm, info.get_arg_ptr(1)),
         1000 => sys_create_window(
             pm,
             info.get_arg_ptr(1),

@@ -26,13 +26,13 @@ impl Irq {
     }
 }
 
-fn read_reg32(offset: usize) -> u32 {
+pub fn read_reg32(offset: usize) -> u32 {
     let base = layout::_plic_start as usize;
     let ptr = (base + offset) as *mut u32;
     unsafe { ptr.read_volatile() }
 }
 
-fn write_reg32(offset: usize, val: u32) {
+pub fn write_reg32(offset: usize, val: u32) {
     let base = layout::_plic_start as usize;
     let ptr = (base + offset) as *mut u32;
     unsafe {

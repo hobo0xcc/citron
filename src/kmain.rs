@@ -1,4 +1,3 @@
-use crate::arch::riscv64::interrupt::interrupt_on;
 use crate::arch::riscv64::virtio::gpu_device;
 use crate::arch::riscv64::virtio::keyboard_device;
 use crate::arch::riscv64::virtio::mouse_device;

@@ -33,7 +33,7 @@ endif
 
 qemu: $(BIN) $(DISK)
 	qemu-system-riscv64 -machine virt \
-	-bios none -kernel $< -m 128M -smp 1 \
+	-bios none -kernel $< -m 256M -smp 1 \
 	-global virtio-mmio.force-legacy=false \
 	-drive file=$(DISK),format=raw,id=hd0 \
 	-device virtio-blk-device,drive=hd0,bus=virtio-mmio-bus.0 \
@@ -45,7 +45,7 @@ qemu: $(BIN) $(DISK)
 
 qemu-gdb: $(BIN) $(DISK)
 	qemu-system-riscv64 -machine virt \
-	-bios none -kernel $< -m 128M -smp 1 \
+	-bios none -kernel $< -m 256M -smp 1 \
 	-global virtio-mmio.force-legacy=false \
 	-serial stdio \
 	-drive file=$(DISK),format=raw,id=hd0 \

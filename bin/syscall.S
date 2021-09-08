@@ -77,3 +77,10 @@ open:
     li a0, 3
     ecall
     ret
+
+.globl execve
+execve:
+    mv a1, a0
+    li a0, 63
+    ecall
+    ret

@@ -8,6 +8,7 @@ use crate::arch::target::process::*;
 use crate::*;
 use alloc::alloc::alloc;
 use alloc::alloc::alloc_zeroed;
+use alloc::alloc::dealloc;
 use alloc::boxed::Box;
 use alloc::collections::binary_heap::BinaryHeap;
 use alloc::collections::VecDeque;
@@ -345,7 +346,7 @@ impl ProcessManager {
 
         // println!("interrupt: {}", is_interrupt_enable());
 
-        // println!("[hobo0xcc] switch: {} -> {}", old_pid, new_pid);
+        println!("[hobo0xcc] switch: {} -> {}", old_pid, new_pid);
         // unsafe {
         //     println!("[hobo0xcc] context.ra: {:#018x}", (*new_context).ra);
         // }
@@ -534,6 +535,10 @@ impl ProcessManager {
         }
 
         self.ptable[pid].arch_proc.free();
+        let layout = Layout::from_size_align(KERNEL_STACK_SIZE, 0x1000).unwrap();
+        unsafe {
+            dealloc(self.ptable[pid].kernel_stack as *mut u8, layout);
+        }
 
         self.event_signal(ProcessEvent::Exit(pid));
 
@@ -663,6 +668,7 @@ impl ProcessManager {
         }
 
         new_proc.arch_proc.kernel_stack = kernel_stack as usize;
+        new_proc.kernel_stack = kernel_stack as usize;
         new_proc.arch_proc.init_context(
             ArchProcess::user_trap_return as usize,
             self.ptable[pid].arch_proc.kernel_stack + self.ptable[pid].arch_proc.kernel_stack_size,
