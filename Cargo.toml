@@ -27,5 +27,5 @@ path = "src/boot.rs"
 panic = "abort"
 
 [profile.release]
-panic = "abort"
 debug = true
+panic = "abort"

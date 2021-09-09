@@ -8,6 +8,7 @@ use alloc::boxed::Box;
 use alloc::collections::binary_heap::BinaryHeap;
 use alloc::collections::BTreeMap;
 use alloc::collections::VecDeque;
+use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::alloc::Layout;
@@ -47,7 +48,7 @@ pub struct Process {
     pub pid: Pid,
     pub priority: usize,
     children: VecDeque<Pid>,
-    pub name: [u8; 64],
+    pub name: String,
     pub kernel_stack: usize,
     pub user_stack: usize,
 }
@@ -60,7 +61,7 @@ impl Process {
             pid,
             priority: 0,
             children: VecDeque::new(),
-            name: [0; 64],
+            name: String::new(),
             kernel_stack: 0,
             user_stack: 0,
         }
@@ -457,18 +458,15 @@ impl ProcessManager {
 
         let mut proc = self.get_process_mut(pid)?;
         proc.priority = priority;
-        let name_bytes = name.as_bytes();
-        for i in 0_usize..64 {
-            if i >= name_bytes.len() {
-                proc.name[i] = 0;
-            } else {
-                proc.name[i] = name_bytes[i];
-            }
-        }
+
+        proc.name = name.to_string();
 
         let stack_layout = Layout::from_size_align(KERNEL_STACK_SIZE, 0x1000).unwrap();
         let kernel_stack = unsafe { alloc(stack_layout) };
         proc.kernel_stack = kernel_stack as usize;
+
+        // once a process created, the state of the process is setting up to State::Suspend
+        // after create_process, the process need to be readied by `ready()`
         proc.state = State::Suspend;
 
         drop(proc);
@@ -599,6 +597,8 @@ impl ProcessManager {
         Ok(())
     }
 
+    // waiting for an `event` occurs
+    // this is, for example, used to wait system call to wait for exiting of child process
     pub fn event_wait(&mut self, pid: usize, event: ProcessEvent) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 
@@ -608,6 +608,7 @@ impl ProcessManager {
             .or_insert_with(|| vec![])
             .push(pid);
 
+        // scheduling is required because the `pid` might be a running process
         self.schedule()?;
 
         interrupt_restore(mask);
@@ -615,14 +616,17 @@ impl ProcessManager {
         Ok(())
     }
 
+    // signaling a process waiting `event` to wakeup
     pub fn event_signal(&mut self, event: ProcessEvent) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 
+        // deferring is required because the number of waiting processes might be greater than one
         self.defer_schedule(DeferCommand::Start)?;
         let events = self.event_queue.remove(&event);
         let events = if let Some(events) = events {
             events
         } else {
+            // there are no waiting processes for the event
             self.defer_schedule(DeferCommand::Stop)?;
             interrupt_restore(mask);
             return Ok(());
@@ -639,6 +643,7 @@ impl ProcessManager {
         Ok(())
     }
 
+    // wait for child processes to exit
     pub fn wait_exit(&mut self) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 

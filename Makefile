@@ -47,7 +47,7 @@ qemu-aarch64-gdb: $(BIN) $(DISK)
 
 qemu-riscv64: $(BIN) $(DISK)
 	qemu-system-riscv64 -machine virt \
-	-bios none -kernel $< -m 256M -smp 1 \
+	-bios none -kernel $< -m 256M -smp 4 \
 	-global virtio-mmio.force-legacy=false \
 	-drive file=$(DISK),format=raw,id=hd0 \
 	-device virtio-blk-device,drive=hd0,bus=virtio-mmio-bus.0 \
@@ -59,7 +59,7 @@ qemu-riscv64: $(BIN) $(DISK)
 
 qemu-gdb-riscv64: $(BIN) $(DISK)
 	qemu-system-riscv64 -machine virt \
-	-bios none -kernel $< -m 256M -smp 1 \
+	-bios none -kernel $< -m 256M -smp 4 \
 	-global virtio-mmio.force-legacy=false \
 	-serial stdio \
 	-drive file=$(DISK),format=raw,id=hd0 \

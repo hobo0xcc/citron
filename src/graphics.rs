@@ -944,21 +944,4 @@ pub fn init() {
         lm.move_layer(DESKTOP_LAYER_ID, 0);
         lm.draw_all();
     }
-
-    let wm = unsafe { window_manager() };
-    let window_id = wm.create_window("Hello", 100, 100, 300, 300);
-    wm.show_window(window_id);
-    let window_id = wm.create_window("Goodbye", 200, 200, 400, 200);
-    wm.show_window(window_id);
-    let mut frame = wm.get_window_frame(window_id);
-    let style = PrimitiveStyleBuilder::new()
-        .stroke_color(Rgb888::GREEN)
-        .stroke_width(3)
-        .fill_color(Rgb888::WHITE)
-        .build();
-    Rectangle::new(Point::new(20, 20), Size::new(20, 20))
-        .into_styled(style)
-        .draw(&mut frame)
-        .expect("draw");
-    wm.update_window_frame(window_id);
 }
