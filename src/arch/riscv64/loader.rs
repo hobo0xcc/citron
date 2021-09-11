@@ -48,13 +48,13 @@ impl ExecutableInfo {
 
 pub fn load_exe(path: &str, page_table: &mut Table) -> Result<ExecutableInfo, Error> {
     let fs = unsafe { file_system() };
-    let fd = fs.open_file(path)?;
-    let size = fs.get_file_size(fd)?;
+    let fd = fs.lock().open_file(path)?;
+    let size = fs.lock().get_file_size(fd)?;
 
     let layout = Layout::from_size_align(size, 0x1000).unwrap();
     let bin_data = unsafe { alloc_zeroed(layout) };
     let bin_slice = unsafe { slice::from_raw_parts_mut(bin_data, size) };
-    fs.read(fd, bin_slice)?;
+    fs.lock().read(fd, bin_slice)?;
 
     let obj = Object::parse(bin_slice).unwrap();
     let elf = match obj {

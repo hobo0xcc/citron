@@ -34,8 +34,9 @@ impl SysCallInfo for RiscvSysCallInfo {
     fn get_arg_ptr<T>(&self, idx: usize) -> *mut T {
         let arg = self.get_arg_raw(idx);
         let pm = unsafe { process_manager() };
+        let running = pm.running;
         let page_table = unsafe {
-            pm.get_process_mut(pm.running)
+            get_process_mut!(pm.ptable_lock_mut(), running)
                 .unwrap()
                 .arch_proc
                 .page_table
@@ -48,7 +49,9 @@ impl SysCallInfo for RiscvSysCallInfo {
 
 pub unsafe fn syscall_info() -> RiscvSysCallInfo {
     let pm = process_manager();
-    let proc = pm.get_process_mut(pm.running).unwrap();
+    let running = pm.running;
+    let mut ptable = pm.ptable_lock_mut();
+    let proc = get_process_mut!(ptable, running).unwrap();
 
     RiscvSysCallInfo {
         trap_frame: proc.arch_proc.trap_frame,
@@ -61,7 +64,7 @@ pub unsafe fn sys_read(_pm: &mut ProcessManager, fd: usize, buf: *mut u8, count:
     }
 
     let fs = file_system();
-    let res = fs.read(fd, from_raw_parts_mut(buf, count));
+    let res = fs.lock().read(fd, from_raw_parts_mut(buf, count));
     if let Err(_) = res {
         return -1_isize as usize;
     } else {
@@ -81,7 +84,7 @@ pub unsafe fn sys_write(_pm: &mut ProcessManager, _fd: usize, buf: *mut u8, coun
 
 pub unsafe fn sys_seek(_pm: &mut ProcessManager, fd: usize, offset: usize, whence: u32) -> usize {
     let fs = file_system();
-    let res = fs.seek(fd, offset as isize, whence);
+    let res = fs.lock().seek(fd, offset as isize, whence);
     if let Err(_) = res {
         return -1_isize as usize;
     } else {
@@ -102,7 +105,7 @@ pub unsafe fn sys_open(_pm: &mut ProcessManager, path: *mut u8) -> usize {
         path_str.push(ch as char);
         index += 1;
     }
-    let fd = fs.open_file(&path_str);
+    let fd = fs.lock().open_file(&path_str);
     if let Err(_) = fd {
         return -1_isize as usize;
     } else {
@@ -111,7 +114,8 @@ pub unsafe fn sys_open(_pm: &mut ProcessManager, path: *mut u8) -> usize {
 }
 
 pub unsafe fn sys_sleep(pm: &mut ProcessManager, delay: usize) -> usize {
-    let pid = pm.get_process(pm.running).unwrap().pid;
+    let running = pm.running;
+    let pid = get_process!(pm.ptable_lock(), running).unwrap().pid;
     pm.sleep(pid, delay).expect("process");
 
     0
@@ -125,7 +129,10 @@ pub unsafe fn sys_wait_exit(pm: &mut ProcessManager) -> usize {
 
 pub unsafe fn sys_fork(pm: &mut ProcessManager) -> usize {
     let pid = pm.fork(pm.running);
-    let trapframe = pm.get_process(pid).unwrap().arch_proc.trap_frame;
+    let trapframe = get_process!(pm.ptable_lock(), pid)
+        .unwrap()
+        .arch_proc
+        .trap_frame;
     // println!("[hobo0xcc] epc: {:#018x}", (*trapframe).epc);
     (*trapframe).a0 = pid;
     (*trapframe).epc += 4;
@@ -135,7 +142,8 @@ pub unsafe fn sys_fork(pm: &mut ProcessManager) -> usize {
 }
 
 pub unsafe fn sys_kill(pm: &mut ProcessManager) -> usize {
-    let pid = pm.get_process(pm.running).unwrap().pid;
+    let running = pm.running;
+    let pid = get_process!(pm.ptable_lock(), running).unwrap().pid;
     pm.kill(pid).expect("process");
 
     0
@@ -159,7 +167,8 @@ pub unsafe fn sys_execve(pm: &mut ProcessManager, path: *mut u8) -> usize {
     }
     pm.load_program(pm.running, &path_str).expect("process");
 
-    pm.get_process_mut(pm.running)
+    let running = pm.running;
+    get_process_mut!(pm.ptable_lock_mut(), running)
         .unwrap()
         .arch_proc
         .user_trap_return();
@@ -191,8 +200,7 @@ pub unsafe fn sys_create_window(
 
 pub unsafe fn sys_map_window(pm: &mut ProcessManager, window_id: usize, vaddr: usize) -> usize {
     let pid = pm.running;
-    let page_table = pm
-        .get_process_mut(pid)
+    let page_table = get_process_mut!(pm.ptable_lock_mut(), pid)
         .unwrap()
         .arch_proc
         .page_table

@@ -57,9 +57,9 @@ qemu-riscv64: $(BIN) $(DISK)
 	-monitor none \
 	-serial stdio
 
-qemu-gdb-riscv64: $(BIN) $(DISK)
+qemu-riscv64-gdb: $(BIN) $(DISK)
 	qemu-system-riscv64 -machine virt \
-	-bios none -kernel $< -m 256M -smp 4 \
+	-bios none -kernel $< -m 256M -smp 1 \
 	-global virtio-mmio.force-legacy=false \
 	-serial stdio \
 	-drive file=$(DISK),format=raw,id=hd0 \

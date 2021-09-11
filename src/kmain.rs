@@ -14,9 +14,9 @@ pub unsafe extern "C" fn kproc() {
     let mouse = mouse_device();
     let keyboard = keyboard_device();
     let gpu = gpu_device();
-    mouse.init_input_event();
-    keyboard.init_input_event();
-    gpu.init_display();
+    mouse.lock().init_input_event();
+    keyboard.lock().init_input_event();
+    gpu.lock().init_display();
     graphics::init();
 
     let lm = layer_manager();
@@ -24,7 +24,7 @@ pub unsafe extern "C" fn kproc() {
     // let mouse = mouse_device();
 
     loop {
-        let queue = &mut mouse.event_queue; //mouse_event_queue();
+        let queue = &mut mouse.lock().event_queue; //mouse_event_queue();
         if queue.is_empty() {
             pm.event_wait(pm.running, ProcessEvent::MouseEvent)
                 .expect("process");
@@ -69,12 +69,12 @@ pub unsafe extern "C" fn fs_proc() {
     let pid = pm.create_process("user", 1, true).expect("process");
     pm.load_program(pid, "/bin/main").expect("process");
     pm.ready(pid).expect("process");
-    // let pid = pm.create_process("user", 1, true);
-    // pm.load_program(pid, "/bin/main");
-    // pm.ready(pid);
 
     // pm.kill(pm.running);
-    pm.get_process_mut(pm.running).expect("process").state = State::Free;
+    let running = pm.running;
+    get_process_mut!(pm.ptable_lock_mut(), running)
+        .expect("process")
+        .state = State::Free;
     pm.schedule().expect("process");
 
     loop {
@@ -102,6 +102,7 @@ pub extern "C" fn kmain() {
     let pm = unsafe { process::process_manager() };
 
     // start preemption
+    interrupt::timer_interrupt_off();
     interrupt::interrupt_on();
 
     pm.defer_schedule(DeferCommand::Start).expect("process");

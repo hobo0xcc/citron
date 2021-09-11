@@ -1,12 +1,15 @@
 pub mod fat;
 
+use core::mem::MaybeUninit;
+
 use crate::arch::riscv64::virtio::virtio_blk::*;
 use crate::*;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::string::ToString;
+use spin::Mutex;
 
-pub static mut FS: Option<FileSystem<fat::Fat32<VirtioBlk>>> = None;
+pub static mut FS: MaybeUninit<Mutex<FileSystem<fat::Fat32<VirtioBlk>>>> = MaybeUninit::uninit();
 
 pub trait Disk {
     fn read_sector(&mut self, sector: usize, buffer: &mut [u8]);
@@ -118,16 +121,19 @@ impl<'a, T: BackingFileSystem> FileSystem<'a, T> {
     }
 }
 
-pub unsafe fn file_system() -> &'static mut FileSystem<'static, fat::Fat32<'static, VirtioBlk>> {
-    match FS {
-        Some(ref mut fs) => fs,
-        None => panic!("file system is uninitialized"),
-    }
+pub unsafe fn file_system(
+) -> &'static mut Mutex<FileSystem<'static, fat::Fat32<'static, VirtioBlk>>> {
+    FS.assume_init_mut()
+    // match FS {
+    //     Some(ref mut fs) => fs,
+    //     None => panic!("file system is uninitialized"),
+    // }
 }
 
 pub fn init() {
-    let fs = FileSystem::new(unsafe { fat::fat32() });
+    let dev = unsafe { fat::fat32() };
+    let fs = FileSystem::new(dev.get_mut());
     unsafe {
-        FS = Some(fs);
+        FS = MaybeUninit::new(Mutex::new(fs));
     }
 }

@@ -18,10 +18,11 @@ use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::*;
 use embedded_graphics::text::*;
+use spin::Mutex;
 use tinybmp::Bmp;
 
 #[cfg(target_arch = "riscv64")]
-pub static mut LAYER_MANAGER: Option<LayerManager<VirtioGpu>> = None;
+pub static mut LAYER_MANAGER: Option<LayerManager<Mutex<VirtioGpu>>> = None;
 pub static mut WINDOW_MANAGER: Option<WindowManager> = None;
 pub static mut MOUSE_LAYER_ID: usize = 0;
 pub static mut DESKTOP_LAYER_ID: usize = 0;
@@ -101,6 +102,28 @@ pub trait Painter {
     fn flush(&mut self);
     fn get_width(&self) -> u32;
     fn get_height(&self) -> u32;
+}
+
+impl<T: Painter> Painter for Mutex<T> {
+    fn draw_at(&mut self, x: u32, y: u32, pixel: u32) {
+        self.lock().draw_at(x, y, pixel);
+    }
+
+    fn copy_buf(&mut self, src: *mut u32, src_offset: usize, dst_offset: usize, size: usize) {
+        self.lock().copy_buf(src, src_offset, dst_offset, size);
+    }
+
+    fn flush(&mut self) {
+        self.lock().flush();
+    }
+
+    fn get_width(&self) -> u32 {
+        self.lock().get_width()
+    }
+
+    fn get_height(&self) -> u32 {
+        self.lock().get_height()
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -898,7 +921,7 @@ pub unsafe fn object_arena() -> &'static mut ObjectArena {
 }
 
 #[cfg(target_arch = "riscv64")]
-pub unsafe fn layer_manager() -> &'static mut LayerManager<'static, VirtioGpu> {
+pub unsafe fn layer_manager() -> &'static mut LayerManager<'static, Mutex<VirtioGpu>> {
     match LAYER_MANAGER {
         Some(ref mut lm) => &mut *lm,
         None => panic!("layer manager is uninitialized"),
@@ -921,8 +944,8 @@ pub fn init() {
     let arena = unsafe { object_arena() };
 
     let display = unsafe { gpu_device() };
-    let width = display.width;
-    let height = display.height;
+    let width = display.lock().width;
+    let height = display.lock().height;
     let mut lm = LayerManager::new(display);
     let wm = WindowManager::new();
     let mouse_transparent_color = 0xff00ff00;

@@ -8,14 +8,16 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::alloc::Layout;
 use core::cmp::min;
+use core::mem::MaybeUninit;
 use core::slice::from_raw_parts_mut;
+use spin::Mutex;
 
 use super::*;
 
 #[cfg(target_arch = "riscv64")]
 use arch::riscv64::virtio::virtio_blk::*;
 #[cfg(target_arch = "riscv64")]
-pub static mut FAT32_FS: Option<Fat32<VirtioBlk>> = None;
+pub static mut FAT32_FS: MaybeUninit<Mutex<Fat32<VirtioBlk>>> = MaybeUninit::uninit();
 
 // https://wiki.osdev.org/FAT
 
@@ -492,19 +494,31 @@ impl<'a, T: Disk> BackingFileSystem for Fat32<'a, T> {
     }
 }
 
-#[cfg(target_arch = "riscv64")]
-pub unsafe fn fat32() -> &'static mut Fat32<'static, VirtioBlk> {
-    match FAT32_FS {
-        Some(ref mut fat) => fat,
-        None => panic!("fat32 is uninitialized"),
+impl<'a, T: BackingFileSystem> BackingFileSystem for Mutex<T> {
+    fn read_at(&mut self, buffer: &mut [u8], path: &str, offset: usize) -> Result<usize, Error> {
+        self.lock().read_at(buffer, path, offset)
     }
+
+    fn file_size(&mut self, path: &str) -> Result<usize, Error> {
+        self.lock().file_size(path)
+    }
+}
+
+#[cfg(target_arch = "riscv64")]
+pub unsafe fn fat32() -> &'static mut Mutex<Fat32<'static, VirtioBlk>> {
+    FAT32_FS.assume_init_mut()
+    // match FAT32_FS {
+    //     Some(ref mut fat) => fat,
+    //     None => panic!("fat32 is uninitialized"),
+    // }
 }
 
 pub fn init() {
     #[cfg(target_arch = "riscv64")]
-    let mut fat32 = Fat32::<VirtioBlk>::new(unsafe { block_device() });
+    let dev = unsafe { block_device() };
+    let mut fat32 = Fat32::<VirtioBlk>::new(dev.get_mut());
     unsafe {
         fat32.init();
-        FAT32_FS = Some(fat32);
+        FAT32_FS = MaybeUninit::new(Mutex::new(fat32));
     }
 }

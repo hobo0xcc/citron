@@ -21,6 +21,7 @@ extern crate hashbrown;
 extern crate intrusive_collections;
 extern crate libm;
 extern crate linked_list_allocator;
+extern crate spin;
 extern crate tiny_skia;
 extern crate tinybmp;
 extern crate volatile_register;
@@ -32,6 +33,7 @@ pub mod graphics;
 pub mod init;
 pub mod kmain;
 pub mod process;
+pub mod spinlock;
 
 #[macro_export]
 macro_rules! print {
@@ -73,9 +75,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     abort();
 }
 
-
 #[no_mangle]
 extern "C" fn abort() -> ! {
-    loop {
-    }
+    loop {}
 }

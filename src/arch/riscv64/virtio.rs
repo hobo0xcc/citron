@@ -5,11 +5,14 @@ pub mod virtio_input;
 use super::{layout, plic};
 use crate::arch::riscv64::virtio::virtio_input::DeviceType;
 use crate::*;
+use core::mem::MaybeUninit;
+use spin::Mutex;
 
-pub static mut BLOCK_DEVICE: Option<virtio_blk::VirtioBlk> = None;
-pub static mut GPU_DEVICE: Option<virtio_gpu::VirtioGpu> = None;
-pub static mut MOUSE_DEVICE: Option<virtio_input::VirtioInput> = None;
-pub static mut KEYBOARD_DEVICE: Option<virtio_input::VirtioInput> = None;
+pub static mut BLOCK_DEVICE: MaybeUninit<Mutex<virtio_blk::VirtioBlk>> = MaybeUninit::uninit();
+pub static mut GPU_DEVICE: MaybeUninit<Mutex<virtio_gpu::VirtioGpu>> = MaybeUninit::uninit();
+pub static mut MOUSE_DEVICE: MaybeUninit<Mutex<virtio_input::VirtioInput>> = MaybeUninit::uninit();
+pub static mut KEYBOARD_DEVICE: MaybeUninit<Mutex<virtio_input::VirtioInput>> =
+    MaybeUninit::uninit();
 
 #[derive(Copy, Clone)]
 pub enum VirtioReg {
@@ -186,32 +189,36 @@ pub fn write_reg64(base: usize, offset: usize, val: u64) {
     }
 }
 
-pub unsafe fn block_device() -> &'static mut virtio_blk::VirtioBlk {
-    match BLOCK_DEVICE {
-        Some(ref mut blk) => blk,
-        None => panic!("block device is uninitialized"),
-    }
+pub unsafe fn block_device() -> &'static mut Mutex<virtio_blk::VirtioBlk> {
+    BLOCK_DEVICE.assume_init_mut()
+    // match *BLOCK_DEVICE.lock() {
+    //     Some(ref mut blk) => blk,
+    //     None => panic!("block device is uninitialized"),
+    // }
 }
 
-pub unsafe fn gpu_device() -> &'static mut virtio_gpu::VirtioGpu {
-    match GPU_DEVICE {
-        Some(ref mut gpu) => gpu,
-        None => panic!("gpu device is uninitialized"),
-    }
+pub unsafe fn gpu_device() -> &'static mut Mutex<virtio_gpu::VirtioGpu> {
+    GPU_DEVICE.assume_init_mut()
+    // match *GPU_DEVICE.lock() {
+    //     Some(ref mut gpu) => gpu,
+    //     None => panic!("gpu device is uninitialized"),
+    // }
 }
 
-pub unsafe fn mouse_device() -> &'static mut virtio_input::VirtioInput {
-    match MOUSE_DEVICE {
-        Some(ref mut mouse) => mouse,
-        None => panic!("mouse device is uninitialized"),
-    }
+pub unsafe fn mouse_device() -> &'static mut Mutex<virtio_input::VirtioInput> {
+    MOUSE_DEVICE.assume_init_mut()
+    // match *MOUSE_DEVICE.lock() {
+    //     Some(ref mut mouse) => mouse,
+    //     None => panic!("mouse device is uninitialized"),
+    // }
 }
 
-pub unsafe fn keyboard_device() -> &'static mut virtio_input::VirtioInput {
-    match KEYBOARD_DEVICE {
-        Some(ref mut keyboard) => keyboard,
-        None => panic!("keyboard device is uninitialized"),
-    }
+pub unsafe fn keyboard_device() -> &'static mut Mutex<virtio_input::VirtioInput> {
+    KEYBOARD_DEVICE.assume_init_mut()
+    // match *KEYBOARD_DEVICE.lock() {
+    //     Some(ref mut keyboard) => keyboard,
+    //     None => panic!("keyboard device is uninitialized"),
+    // }
 }
 
 pub fn interrupt(irq: u32) {
@@ -219,19 +226,19 @@ pub fn interrupt(irq: u32) {
     match index {
         0 => {
             let blk = unsafe { block_device() };
-            blk.pending();
+            blk.get_mut().pending();
         }
         1 => {
             let gpu = unsafe { gpu_device() };
-            gpu.pending();
+            gpu.get_mut().pending();
         }
         2 => {
             let mouse = unsafe { mouse_device() };
-            mouse.pending();
+            mouse.get_mut().pending();
         }
         3 => {
             let keyboard = unsafe { keyboard_device() };
-            keyboard.pending();
+            keyboard.get_mut().pending();
         }
         _ => panic!("unknown virtio device: {}", index),
     }
@@ -254,14 +261,14 @@ pub fn init() {
                 let blk = virtio_blk::init(ptr);
                 println!("virtio_blk: {:#018x}", ptr);
                 unsafe {
-                    BLOCK_DEVICE = Some(blk);
+                    BLOCK_DEVICE = MaybeUninit::new(Mutex::new(blk));
                 }
             }
             16 => {
                 let gpu = virtio_gpu::init(ptr);
                 println!("virtio_gpu: {:#018x}", ptr);
                 unsafe {
-                    GPU_DEVICE = Some(gpu);
+                    GPU_DEVICE = MaybeUninit::new(Mutex::new(gpu));
                 }
             }
             18 => {
@@ -275,10 +282,10 @@ pub fn init() {
                 unsafe {
                     match i {
                         2 => {
-                            MOUSE_DEVICE = Some(input);
+                            MOUSE_DEVICE = MaybeUninit::new(Mutex::new(input));
                         }
                         3 => {
-                            KEYBOARD_DEVICE = Some(input);
+                            KEYBOARD_DEVICE = MaybeUninit::new(Mutex::new(input));
                         }
                         _ => {}
                     }

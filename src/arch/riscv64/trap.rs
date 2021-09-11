@@ -1,7 +1,6 @@
 use super::csr::Csr;
 use super::process::ArchProcess;
 use crate::arch::riscv64::interrupt::is_interrupt_enable;
-use crate::process::process_manager;
 use crate::*;
 
 extern "C" {
@@ -102,11 +101,13 @@ pub unsafe extern "C" fn kernel_trap() {
         println!("sstatus:  {:#018x}", sstatus_val);
         panic!("interrupts enabled");
     }
-    let pm = process_manager();
-    let proc = pm.get_process_mut(pm.running).unwrap();
+    // let pm = process_manager();
 
     if scause_val & (1 << 63) != 0 {
-        ArchProcess::interrupt(&mut proc.arch_proc, scause_val & !(1 << 63));
+        // let running = pm.running;
+        // let mut ptable = pm.ptable_lock_mut();
+        // let proc = get_process_mut!(ptable, running).unwrap();
+        ArchProcess::interrupt(scause_val & !(1 << 63));
     } else {
         println!("Exception occurred!");
         println!("sepc: {:#x}", sepc_val);

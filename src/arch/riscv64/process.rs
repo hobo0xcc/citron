@@ -270,7 +270,7 @@ impl ArchProcess {
         }
     }
 
-    pub fn interrupt(&mut self, code: usize) {
+    pub fn interrupt(code: usize) {
         match code {
             1 => {
                 // supervisor software interrupt
@@ -332,7 +332,7 @@ impl ArchProcess {
 
         let scause = Csr::Scause.read();
         if scause & (1 << 63) != 0 {
-            self.interrupt(scause & !(1 << 63));
+            ArchProcess::interrupt(scause & !(1 << 63));
         } else {
             self.exception(scause);
         }
