@@ -25,3 +25,5 @@ extern "C" {
     pub fn _fw_cfg_start();
     pub fn _fw_cfg_end();
 }
+
+pub const QEMU_VIRT_TEST: usize = 0x100000;

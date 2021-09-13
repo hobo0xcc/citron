@@ -372,30 +372,30 @@ pub fn id_map_range(root: &mut Table, start: usize, end: usize, bits: usize) {
 }
 
 pub extern "C" fn init() {
-    println!();
-    println!("SECTION _text_start\t: {:#010x}", _text_start as usize);
-    println!("SECTION _text_end\t: {:#010x}", _text_end as usize);
-    println!("SECTION _rodata_start\t: {:#010x}", _rodata_start as usize);
-    println!("SECTION _rodata_end\t: {:#010x}", _rodata_end as usize);
-    println!("SECTION _data_start\t: {:#010x}", _data_start as usize);
-    println!("SECTION _data_end\t: {:#010x}", _data_end as usize);
-    println!("SECTION _bss_start\t: {:#010x}", _bss_start as usize);
-    println!("SECTION _bss_end\t: {:#010x}", _bss_end as usize);
-    println!("SECTION _stack_start\t: {:#010x}", _stack_start as usize);
-    println!("SECTION _stack_end\t: {:#010x}", _stack_end as usize);
-    println!("SECTION _heap_start\t: {:#010x}", _heap_start as usize);
-    println!("SECTION _heap_end\t: {:#010x}", _heap_end as usize);
-    println!("SECTION _clint_start\t: {:#010x}", _clint_start as usize);
-    println!("SECTION _clint_end\t: {:#010x}", _clint_end as usize);
-    println!("SECTION _plic_start\t: {:#010x}", _plic_start as usize);
-    println!("SECTION _plic_end\t: {:#010x}", _plic_end as usize);
-    println!("SECTION _uart0_start\t: {:#010x}", _uart0_start as usize);
-    println!("SECTION _uart0_end\t: {:#010x}", _uart0_end as usize);
-    println!("SECTION _virtio_start\t: {:#010x}", _virtio_start as usize);
-    println!("SECTION _virtio_end\t: {:#010x}", _virtio_end as usize);
-    println!("SECTION _fw_cfg_start\t: {:#010x}", _fw_cfg_start as usize);
-    println!("SECTION _fw_cfg_end\t: {:#010x}", _fw_cfg_end as usize);
-    println!();
+    // println!();
+    // println!("SECTION _text_start\t: {:#010x}", _text_start as usize);
+    // println!("SECTION _text_end\t: {:#010x}", _text_end as usize);
+    // println!("SECTION _rodata_start\t: {:#010x}", _rodata_start as usize);
+    // println!("SECTION _rodata_end\t: {:#010x}", _rodata_end as usize);
+    // println!("SECTION _data_start\t: {:#010x}", _data_start as usize);
+    // println!("SECTION _data_end\t: {:#010x}", _data_end as usize);
+    // println!("SECTION _bss_start\t: {:#010x}", _bss_start as usize);
+    // println!("SECTION _bss_end\t: {:#010x}", _bss_end as usize);
+    // println!("SECTION _stack_start\t: {:#010x}", _stack_start as usize);
+    // println!("SECTION _stack_end\t: {:#010x}", _stack_end as usize);
+    // println!("SECTION _heap_start\t: {:#010x}", _heap_start as usize);
+    // println!("SECTION _heap_end\t: {:#010x}", _heap_end as usize);
+    // println!("SECTION _clint_start\t: {:#010x}", _clint_start as usize);
+    // println!("SECTION _clint_end\t: {:#010x}", _clint_end as usize);
+    // println!("SECTION _plic_start\t: {:#010x}", _plic_start as usize);
+    // println!("SECTION _plic_end\t: {:#010x}", _plic_end as usize);
+    // println!("SECTION _uart0_start\t: {:#010x}", _uart0_start as usize);
+    // println!("SECTION _uart0_end\t: {:#010x}", _uart0_end as usize);
+    // println!("SECTION _virtio_start\t: {:#010x}", _virtio_start as usize);
+    // println!("SECTION _virtio_end\t: {:#010x}", _virtio_end as usize);
+    // println!("SECTION _fw_cfg_start\t: {:#010x}", _fw_cfg_start as usize);
+    // println!("SECTION _fw_cfg_end\t: {:#010x}", _fw_cfg_end as usize);
+    // println!();
 
     let root_ptr = unsafe { alloc_zeroed(Layout::from_size_align(0x1000, 0x1000).unwrap()) };
     let root = unsafe { (root_ptr.cast::<Table>()).as_mut().unwrap() };
@@ -479,6 +479,13 @@ pub extern "C" fn init() {
         root,
         _fw_cfg_start as usize,
         _fw_cfg_end as usize,
+        EntryBits::R.val() | EntryBits::W.val(),
+    );
+
+    id_map_range(
+        root,
+        QEMU_VIRT_TEST as usize,
+        QEMU_VIRT_TEST + 0x1000 as usize,
         EntryBits::R.val() | EntryBits::W.val(),
     );
 

@@ -1,6 +1,5 @@
 use super::csr::Csr;
 use crate::arch::target::*;
-use crate::*;
 
 unsafe extern "C" fn pmp_init() {
     let pmpaddr0 = (!0_usize) >> 10;
@@ -14,7 +13,7 @@ unsafe extern "C" fn pmp_init() {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn start() {
+pub unsafe extern "C" fn start(main_func: usize) {
     // uart::init();
 
     // We want to enter supervisor mode to execute kernel code.
@@ -62,8 +61,8 @@ pub unsafe extern "C" fn start() {
     sstatus_val |= 1 << 13; // FS
     Csr::Sstatus.write(sstatus_val);
 
-    // Jump to main
-    let mepc_val = kmain::kmain as usize;
+    // Jump to main (or in test mode, jump to test_main)
+    let mepc_val = main_func; // kmain::kmain as usize;
     Csr::Mepc.write(mepc_val);
 
     pmp_init();

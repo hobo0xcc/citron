@@ -20,13 +20,18 @@ tiny-skia = {version = "0.5.1", default-features = false, features = ["libm"]}
 tinybmp = "0.3.1"
 volatile-register = "0.2.1"
 
-[[bin]]
-name = "citron"
-path = "src/boot.rs"
+# [[bin]]
+# name = "citron"
+# path = "src/main.rs"
 
 [profile.dev]
-panic = "abort"
 
 [profile.release]
 debug = true
-panic = "abort"
+
+[lib]
+test = false
+
+[[bin]]
+name = "citron"
+test = false

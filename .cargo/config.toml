@@ -11,6 +11,7 @@ rustflags = [
 ]
 
 [target.'cfg(target_pointer_width = "64")']
+runner = "./test.sh"
 rustflags = [
   "-Clink-args=-Tmachine.ld",
 ]

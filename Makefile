@@ -1,8 +1,9 @@
 BIN=kernel.elf
+TEST_BIN=
 DISK=disk.img
 MOUNT=mnt
 BUILD=release
-MACHINE=raspi3
+MACHINE=virt
 ARCH=$(MACHINE).json
 SCRIPT=src/linker/$(MACHINE).ld
 
@@ -45,6 +46,7 @@ qemu-aarch64-gdb: $(BIN) $(DISK)
 	-drive file=$(DISK),format=raw,if=sd \
 	-gdb tcp::1234 -S
 
+ifeq ($(TEST_BIN),)
 qemu-riscv64: $(BIN) $(DISK)
 	qemu-system-riscv64 -machine virt \
 	-bios none -kernel $< -m 256M -smp 4 \
@@ -56,7 +58,22 @@ qemu-riscv64: $(BIN) $(DISK)
 	-device virtio-keyboard-device,bus=virtio-mmio-bus.3 \
 	-monitor none \
 	-serial stdio
+else
+qemu-riscv64: $(DISK)
+	qemu-system-riscv64 -machine virt \
+	-bios none -kernel $(TEST_BIN) -m 256M -smp 1 \
+	-global virtio-mmio.force-legacy=false \
+	-global riscv.sifive.test=true \
+	-drive file=$(DISK),format=raw,id=hd0 \
+	-device virtio-blk-device,drive=hd0,bus=virtio-mmio-bus.0 \
+	-device virtio-gpu-device,bus=virtio-mmio-bus.1 \
+	-device virtio-mouse-device,bus=virtio-mmio-bus.2 \
+	-device virtio-keyboard-device,bus=virtio-mmio-bus.3 \
+	-monitor none \
+	-serial stdio
+endif
 
+ifeq ($(TEST_BIN),)
 qemu-riscv64-gdb: $(BIN) $(DISK)
 	qemu-system-riscv64 -machine virt \
 	-bios none -kernel $< -m 256M -smp 1 \
@@ -68,6 +85,26 @@ qemu-riscv64-gdb: $(BIN) $(DISK)
 	-device virtio-mouse-device,bus=virtio-mmio-bus.2 \
 	-device virtio-keyboard-device,bus=virtio-mmio-bus.3 \
 	-gdb tcp::1234 -S
+else
+qemu-riscv64-gdb: $(DISK)
+	qemu-system-riscv64 -machine virt \
+	-bios none -kernel $(TEST_BIN) -m 256M -smp 1 \
+	-global virtio-mmio.force-legacy=false \
+	-serial stdio \
+	-drive file=$(DISK),format=raw,id=hd0 \
+	-device virtio-blk-device,drive=hd0,bus=virtio-mmio-bus.0 \
+	-device virtio-gpu-device,bus=virtio-mmio-bus.1 \
+	-device virtio-mouse-device,bus=virtio-mmio-bus.2 \
+	-device virtio-keyboard-device,bus=virtio-mmio-bus.3 \
+	-gdb tcp::1234 -S
+endif
+
+test:
+	cp $(ARCH) machine.json
+	cp $(SCRIPT) machine.ld
+	cargo test
+
+disk: $(DISK)
 
 clean:
 	make -C bin clean

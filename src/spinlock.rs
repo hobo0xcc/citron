@@ -1,4 +1,3 @@
-use crate::arch::target::interrupt::*;
 use crate::process::*;
 use core::ops::{Deref, DerefMut};
 use spin::{RwLock, RwLockReadGuard, RwLockWriteGuard};

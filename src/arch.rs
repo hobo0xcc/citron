@@ -1,13 +1,14 @@
-#[cfg(target_arch = "riscv64")]
-pub mod riscv64;
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64;
+#[cfg(target_arch = "riscv64")]
+pub mod riscv64;
 
 #[cfg(target_arch = "riscv64")]
 pub mod target {
     pub use super::riscv64::boot;
     pub use super::riscv64::clint;
     pub use super::riscv64::csr;
+    pub use super::riscv64::debug;
     pub use super::riscv64::fw_cfg;
     pub use super::riscv64::graphics;
     pub use super::riscv64::init;
@@ -29,12 +30,12 @@ pub mod target {
 #[cfg(target_arch = "aarch64")]
 pub mod target {
     pub use super::aarch64::boot;
+    pub use super::aarch64::gpio;
     pub use super::aarch64::init;
+    pub use super::aarch64::layout;
+    pub use super::aarch64::serial;
     pub use super::aarch64::start;
     pub use super::aarch64::uart;
-    pub use super::aarch64::layout;
-    pub use super::aarch64::gpio;
-    pub use super::aarch64::serial;
 }
 
 pub mod paging;
