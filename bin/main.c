@@ -14,14 +14,17 @@ extern int execve(char *path);
 char buf[4096];
 
 int main(void) {
-  int width = 300;
-  int height = 300;
+  int width = 640;
+  int height = 480;
   int window_id = create_window("window", 6, 10, 10, width, height);
   unsigned long buf_addr = 0x10000000;
   int err = map_window(window_id, buf_addr);
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
-      *((unsigned int *)(buf_addr + (y * width + x) * 4)) = (x + y) * 4;
+      int x0 = x - width / 2;
+      int y0 = y - height / 2;
+      int color = (unsigned char)((x0 * x0 + y0 * y0) / 9 % 0x32);
+      *((unsigned int *)(buf_addr) + (y * width + x)) = (color) | (color << 8) | (color << 16) | (color << 24);
     }
   }
 

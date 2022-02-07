@@ -7,6 +7,7 @@ use alloc::vec::Vec;
 use core::alloc::Layout;
 use core::mem::size_of;
 use core::ptr::{null_mut, NonNull};
+use core::arch::asm;
 
 use super::super::virtio;
 use super::*;
@@ -814,11 +815,11 @@ impl VirtioGpu {
             }
         }
 
-        let desc_indexes = match self.desc_indexes {
-            Some(ref indexes) => indexes.clone(),
-            None => panic!("desc_indexes must be saved"),
+        let indexes = self.desc_indexes.clone();
+        match indexes {
+            Some(ref indexes) => self.deallocate_desc(&indexes),
+            _ => {},
         };
-        self.deallocate_desc(&desc_indexes);
 
         let pm = unsafe { process_manager() };
         pm.io_signal(self.pid).expect("process");

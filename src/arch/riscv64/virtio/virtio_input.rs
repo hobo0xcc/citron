@@ -10,6 +10,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::mem::size_of;
 use core::ptr::NonNull;
+use core::arch::asm;
 use volatile_register::*;
 
 pub const EVENT_BUFFER_SIZE: usize = VIRTIO_RING_SIZE;

@@ -7,7 +7,7 @@ impl Painter for VirtioGpu {
         unsafe {
             (self.framebuffer as *mut u32)
                 .add((y * self.width + x) as usize)
-                .write(pixel);
+                .write(pixel.swap_bytes() >> 8);
         }
     }
 

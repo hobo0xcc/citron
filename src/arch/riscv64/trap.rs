@@ -2,6 +2,7 @@ use super::csr::Csr;
 use super::process::ArchProcess;
 use crate::arch::riscv64::interrupt::is_interrupt_enable;
 use crate::*;
+use core::arch::global_asm;
 
 extern "C" {
     pub fn kernelvec();

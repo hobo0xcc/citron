@@ -9,6 +9,7 @@ use alloc::vec::Vec;
 use core::alloc::Layout;
 use core::mem::size_of;
 use core::ptr::NonNull;
+use core::arch::asm;
 
 #[derive(Copy, Clone)]
 pub enum VirtioBlkFeature {

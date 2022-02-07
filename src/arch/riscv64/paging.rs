@@ -3,6 +3,7 @@ use super::layout::*;
 use super::trampoline;
 use alloc::alloc::{alloc_zeroed, dealloc};
 use core::alloc::Layout;
+use core::arch::asm;
 
 use crate::*;
 

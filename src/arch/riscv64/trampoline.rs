@@ -1,3 +1,5 @@
+use core::arch::global_asm;
+
 extern "C" {
     pub fn trampoline();
     pub fn uservec();

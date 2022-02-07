@@ -1,5 +1,6 @@
 use super::csr::Csr;
 use super::*;
+use core::arch::asm;
 
 pub const INTERVAL: usize = 100000;
 pub const MSIP: usize = 0x0;

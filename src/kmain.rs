@@ -7,6 +7,7 @@ use crate::graphics::layer_manager;
 use crate::graphics::*;
 use crate::process::*;
 use crate::*;
+use core::arch::asm;
 
 pub unsafe extern "C" fn kproc() {
     let pm = process_manager();
@@ -66,16 +67,22 @@ pub unsafe extern "C" fn fs_proc() {
     fs::fat::init();
     fs::init();
     let pm = process_manager();
-    let pid = pm.create_process("user", 1, true).expect("process");
-    pm.load_program(pid, "/bin/main").expect("process");
-    pm.ready(pid).expect("process");
+    // pm.defer_schedule(DeferCommand::Start).unwrap();
+    let pid = pm.create_process("mandelbrot", 1, true).unwrap();
+    pm.load_program(pid, "/bin/mandelbrot").unwrap();
+    pm.ready(pid).unwrap();
 
-    // pm.kill(pm.running);
-    let running = pm.running;
-    get_process_mut!(pm.ptable_lock_mut(), running)
-        .expect("process")
-        .state = State::Free;
-    pm.schedule().expect("process");
+    let pid = pm.create_process("main", 1, true).unwrap();
+    pm.load_program(pid, "/bin/main").unwrap();
+    pm.ready(pid).unwrap();
+    // pm.defer_schedule(DeferCommand::Stop).unwrap();
+
+    // // pm.kill(pm.running);
+    // let running = pm.running;
+    // get_process_mut!(pm.ptable_lock_mut(), running)
+    //     .expect("process")
+    //     .state = State::Free;
+    // pm.schedule().expect("process");
 
     loop {
         pm.schedule().expect("process");

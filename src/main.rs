@@ -1,8 +1,6 @@
 #![feature(
     panic_info_message,
-    llvm_asm,
-    global_asm,
-    asm,
+    // llvm_asm,
     start,
     stmt_expr_attributes,
     lang_items,
@@ -15,10 +13,12 @@
 extern crate citron;
 
 use citron::*;
+use core::arch::asm;
 
 #[no_mangle]
 #[start]
 #[cfg(not(test))]
+#[link_section = ".text.boot"]
 pub extern "C" fn _entry() -> ! {
     #[cfg(all(target_arch = "riscv64"))]
     unsafe {

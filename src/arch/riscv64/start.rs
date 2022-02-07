@@ -1,5 +1,6 @@
 use super::csr::Csr;
 use crate::arch::target::*;
+use core::arch::asm;
 
 unsafe extern "C" fn pmp_init() {
     let pmpaddr0 = (!0_usize) >> 10;

@@ -1,7 +1,7 @@
 #![no_std]
 #![feature(
     panic_info_message,
-    llvm_asm,
+    // llvm_asm,
     global_asm,
     asm,
     start,
@@ -58,7 +58,7 @@ macro_rules! test_harness {
                 println!("no information available.");
             }
 
-            println!("FAIL");
+            println!("[FAIL]");
 
             debug::exit_qemu(1, debug::Status::Fail);
         }
@@ -97,7 +97,7 @@ where
     fn run(&self) {
         println!("{}...\t", core::any::type_name::<T>());
         self();
-        println!("[ok]");
+        println!("[OK]");
     }
 }
 

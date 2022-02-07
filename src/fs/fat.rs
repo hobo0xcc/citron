@@ -156,6 +156,8 @@ impl<'a, T: Disk> Fat32<'a, T> {
         self.root_dir_first_cluster = root_dir_first_cluster;
         self.sector_size = bs.BPB_BytsPerSec as u32;
 
+        // self.list_all_files_in_dir(self.cluster_begin);
+
         pm.signal_semaphore(self.sid).expect("process");
     }
 

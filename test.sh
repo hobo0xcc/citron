@@ -1,5 +1,3 @@
-#!/bin/sh
-
 BIN="$1"
 DISK=disk.img
 

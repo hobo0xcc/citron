@@ -19,6 +19,9 @@ use hashbrown::HashMap;
 use intrusive_collections::intrusive_adapter;
 use intrusive_collections::{LinkedList, LinkedListLink};
 
+pub type Pid = usize;
+pub type Sid = usize;
+
 pub static mut PM: Option<ProcessManager> = None;
 
 #[derive(Copy, Clone, PartialEq, Debug, Hash, Eq)]
@@ -104,7 +107,7 @@ impl Eq for ProcessDesc {}
 
 #[derive(Clone)]
 pub struct ProcessDelay {
-    pid: usize,
+    pid: Pid,
     delay: usize,
     link: LinkedListLink,
 }
@@ -112,7 +115,7 @@ pub struct ProcessDelay {
 intrusive_adapter!(ProcessDelayAdapter = Box<ProcessDelay>: ProcessDelay { link: LinkedListLink });
 
 impl ProcessDelay {
-    pub fn new(pid: usize, delay: usize) -> Self {
+    pub fn new(pid: Pid, delay: usize) -> Self {
         ProcessDelay {
             pid,
             delay,
@@ -167,9 +170,6 @@ pub enum ProcessError {
     ProcessNotFound(Pid),
     SemaphoreNotFound(Sid),
 }
-
-pub type Pid = usize;
-pub type Sid = usize;
 
 #[macro_export]
 macro_rules! get_process_mut {
@@ -425,7 +425,7 @@ impl<'a> ProcessManager<'a> {
         Ok(())
     }
 
-    pub fn ready(&mut self, pid: usize) -> Result<(), ProcessError> {
+    pub fn ready(&mut self, pid: Pid) -> Result<(), ProcessError> {
         let mut ptable = self.ptable_lock_mut();
         if get_process!(ptable, pid)?.state == State::Free
             || get_process!(ptable, pid)?.state == State::Running
@@ -443,7 +443,7 @@ impl<'a> ProcessManager<'a> {
         Ok(())
     }
 
-    pub fn setup_kernel_process(&mut self, pid: usize, func: usize) -> Result<(), ProcessError> {
+    pub fn setup_kernel_process(&mut self, pid: Pid, func: usize) -> Result<(), ProcessError> {
         let mut ptable = self.ptable_lock_mut();
         let kernel_stack = get_process!(ptable, pid)?.kernel_stack;
 
@@ -567,7 +567,7 @@ impl<'a> ProcessManager<'a> {
         Ok(())
     }
 
-    pub fn sleep(&mut self, pid: usize, delay: usize) -> Result<(), ProcessError> {
+    pub fn sleep(&mut self, pid: Pid, delay: usize) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
         get_process_mut!(self.ptable_lock_mut(), pid)?.state = State::Sleep;
 
@@ -602,7 +602,7 @@ impl<'a> ProcessManager<'a> {
         Ok(())
     }
 
-    pub fn kill(&mut self, pid: usize) -> Result<(), ProcessError> {
+    pub fn kill(&mut self, pid: Pid) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 
         let state = get_process!(self.ptable_lock(), pid)?.state;
@@ -633,7 +633,7 @@ impl<'a> ProcessManager<'a> {
         Ok(())
     }
 
-    pub fn io_wait(&mut self, pid: usize) -> Result<(), ProcessError> {
+    pub fn io_wait(&mut self, pid: Pid) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 
         get_process_mut!(self.ptable_lock_mut(), pid)?.state = State::IOWait;
@@ -643,7 +643,7 @@ impl<'a> ProcessManager<'a> {
         Ok(())
     }
 
-    pub fn io_signal(&mut self, pid: usize) -> Result<(), ProcessError> {
+    pub fn io_signal(&mut self, pid: Pid) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 
         self.ready(pid)?;
@@ -655,7 +655,7 @@ impl<'a> ProcessManager<'a> {
 
     // waiting for an `event` occurs
     // this is, for example, used to wait system call to wait for exiting of child process
-    pub fn event_wait(&mut self, pid: usize, event: ProcessEvent) -> Result<(), ProcessError> {
+    pub fn event_wait(&mut self, pid: Pid, event: ProcessEvent) -> Result<(), ProcessError> {
         let mask = interrupt_disable();
 
         get_process_mut!(self.ptable_lock_mut(), pid)?.state = State::EventWait;
@@ -730,8 +730,14 @@ impl<'a> ProcessManager<'a> {
         Ok(())
     }
 
-    pub fn fork(&mut self, _pid: usize) -> usize {
+    pub fn fork(&mut self, _pid: Pid) -> usize {
         0
+    }
+
+    pub fn get_process_state(&mut self, pid: Pid) -> Result<State, ProcessError> {
+        let ptable = self.ptable_lock();
+        let proc = get_process!(ptable, pid)?;
+        Ok(proc.state)
     }
 }
 

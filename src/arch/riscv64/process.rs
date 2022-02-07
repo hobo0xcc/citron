@@ -17,6 +17,7 @@ use alloc::alloc::dealloc;
 use core::mem;
 use core::ptr::NonNull;
 use core::{alloc::Layout, default::Default};
+use core::arch::global_asm;
 
 pub const PROC_START: usize = 0x1000;
 pub const USER_STACK_START: usize = 0xffff_ffff_ffff_f000;

@@ -1,3 +1,5 @@
+use core::arch::asm;
+
 #[derive(Debug)]
 pub enum Csr {
     Misa,

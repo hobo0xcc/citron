@@ -262,7 +262,7 @@ impl Object for Window {
 
     fn on_event(&mut self, event: ObjectEvent, layer_id: LayerId) {
         match event {
-            ObjectEvent::MouseLeftPress(_x, _y) => {
+            ObjectEvent::MouseLeftPress(_x, y) => {
                 let lm = unsafe { layer_manager() };
                 let mouse_layer_id = unsafe { MOUSE_LAYER_ID };
 
@@ -279,6 +279,11 @@ impl Object for Window {
                 let prev_y = lm.get_layer_y(layer_id) as i32;
                 let next_x = x as i32 - (lm.event_info.pressed_x as i32 - prev_x);
                 let next_y = y as i32 - (lm.event_info.pressed_y as i32 - prev_y);
+                
+                if lm.event_info.pressed_y > (prev_y as u32 + self.title_bar_height) {
+                    return;
+                }
+
                 lm.move_abs(layer_id, next_x, next_y);
                 lm.update(layer_id);
             }
